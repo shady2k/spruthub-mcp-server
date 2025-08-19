@@ -28,49 +28,22 @@ export class SpruthubMCPServer {
     this.logger = pino({
       level: process.env.LOG_LEVEL || 'info',
       transport: {
-        target: 'pino-pretty',
+        target: 'pino/file',
         options: {
-          colorize: true,
-          translateTime: 'HH:MM:ss Z',
-          ignore: 'pid,hostname',
+          destination: '/tmp/spruthub-mcp.log',
         },
       },
     });
 
     this.sprutClient = null;
     this.setupToolHandlers();
+    this.setupGracefulShutdown();
   }
 
   setupToolHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
         tools: [
-          {
-            name: 'spruthub_connect',
-            description: 'Connect to Spruthub server. Parameters can be provided via arguments or environment variables (SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL)',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                wsUrl: {
-                  type: 'string',
-                  description: 'WebSocket URL of the Spruthub server (or set SPRUTHUB_WS_URL)',
-                },
-                sprutEmail: {
-                  type: 'string',
-                  description: 'Authentication email (or set SPRUTHUB_EMAIL)',
-                },
-                sprutPassword: {
-                  type: 'string',
-                  description: 'Authentication password (or set SPRUTHUB_PASSWORD)',
-                },
-                serial: {
-                  type: 'string',
-                  description: 'Device serial number (or set SPRUTHUB_SERIAL)',
-                },
-              },
-              required: [],
-            },
-          },
           {
             name: 'spruthub_execute',
             description: 'Execute a command on a Spruthub device',
@@ -110,14 +83,6 @@ export class SpruthubMCPServer {
               properties: {},
             },
           },
-          {
-            name: 'spruthub_disconnect',
-            description: 'Disconnect from Spruthub server',
-            inputSchema: {
-              type: 'object',
-              properties: {},
-            },
-          },
         ],
       };
     });
@@ -127,14 +92,10 @@ export class SpruthubMCPServer {
 
       try {
         switch (name) {
-          case 'spruthub_connect':
-            return await this.handleConnect(args);
           case 'spruthub_execute':
             return await this.handleExecute(args);
           case 'spruthub_version':
             return await this.handleVersion();
-          case 'spruthub_disconnect':
-            return await this.handleDisconnect();
           default:
             throw new McpError(
               ErrorCode.MethodNotFound,
@@ -151,47 +112,38 @@ export class SpruthubMCPServer {
     });
   }
 
-  async handleConnect(args) {
-    const { 
-      wsUrl = process.env.SPRUTHUB_WS_URL,
-      sprutEmail = process.env.SPRUTHUB_EMAIL, 
-      sprutPassword = process.env.SPRUTHUB_PASSWORD, 
-      serial = process.env.SPRUTHUB_SERIAL 
-    } = args;
+  async ensureConnected() {
+    if (!this.sprutClient) {
+      const wsUrl = process.env.SPRUTHUB_WS_URL;
+      const sprutEmail = process.env.SPRUTHUB_EMAIL;
+      const sprutPassword = process.env.SPRUTHUB_PASSWORD;
+      const serial = process.env.SPRUTHUB_SERIAL;
 
-    if (!wsUrl || !sprutEmail || !sprutPassword || !serial) {
-      throw new Error('Missing required connection parameters. Provide via arguments or environment variables: SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL');
-    }
+      if (!wsUrl || !sprutEmail || !sprutPassword || !serial) {
+        throw new Error('Not connected and missing required connection parameters. Set environment variables: SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL');
+      }
 
-    try {
-      this.sprutClient = new Sprut({
-        wsUrl,
-        sprutEmail,
-        sprutPassword,
-        serial,
-        logger: this.logger,
-      });
-
-      await this.sprutClient.connected();
+      this.logger.info('Auto-connecting to Spruthub server...');
       
-      return {
-        content: [
-          {
-            type: 'text',
-            text: 'Successfully connected to Spruthub server',
-          },
-        ],
-      };
-    } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to connect to Spruthub');
-      throw new Error(`Failed to connect: ${error.message}`);
+      try {
+        this.sprutClient = new Sprut({
+          wsUrl,
+          sprutEmail,
+          sprutPassword,
+          serial,
+          logger: this.logger,
+        });
+
+        await this.sprutClient.connected();
+      } catch (error) {
+        this.logger.error({ error: error.message }, 'Failed to connect to Spruthub');
+        throw new Error(`Failed to connect: ${error.message}`);
+      }
     }
   }
 
   async handleExecute(args) {
-    if (!this.sprutClient) {
-      throw new Error('Not connected to Spruthub. Use spruthub_connect first.');
-    }
+    await this.ensureConnected();
 
     const { command, accessoryId, serviceId, characteristicId, value } = args;
 
@@ -218,9 +170,7 @@ export class SpruthubMCPServer {
   }
 
   async handleVersion() {
-    if (!this.sprutClient) {
-      throw new Error('Not connected to Spruthub. Use spruthub_connect first.');
-    }
+    await this.ensureConnected();
 
     try {
       const version = await this.sprutClient.version();
@@ -239,34 +189,29 @@ export class SpruthubMCPServer {
     }
   }
 
-  async handleDisconnect() {
-    if (!this.sprutClient) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: 'Not connected to Spruthub server',
-          },
-        ],
-      };
-    }
-
-    try {
-      await this.sprutClient.close();
-      this.sprutClient = null;
+  setupGracefulShutdown() {
+    const shutdown = async (signal) => {
+      this.logger.info(`Received ${signal}, shutting down gracefully...`);
       
-      return {
-        content: [
-          {
-            type: 'text',
-            text: 'Successfully disconnected from Spruthub server',
-          },
-        ],
-      };
-    } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to disconnect');
-      throw new Error(`Failed to disconnect: ${error.message}`);
-    }
+      if (this.sprutClient) {
+        try {
+          await this.sprutClient.close();
+          this.logger.info('Successfully disconnected from Spruthub server');
+        } catch (error) {
+          this.logger.error({ error: error.message }, 'Failed to disconnect gracefully');
+        }
+      }
+      
+      process.exit(0);
+    };
+
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('exit', () => {
+      if (this.sprutClient) {
+        this.logger.info('Process exiting, cleaning up connection...');
+      }
+    });
   }
 
   async run() {
@@ -279,7 +224,7 @@ export class SpruthubMCPServer {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const server = new SpruthubMCPServer();
   server.run().catch((error) => {
-    console.error('Server failed to start:', error);
+    process.stderr.write(`Server failed to start: ${error}\n`);
     process.exit(1);
   });
 }

@@ -92,29 +92,11 @@ describe('SpruthubMCPServer Integration', () => {
       const listToolsHandler = listToolsCall[1];
       const result = await listToolsHandler();
 
-      expect(result.tools).toHaveLength(4);
+      expect(result.tools).toHaveLength(2);
       expect(result.tools.map(tool => tool.name)).toEqual([
-        'spruthub_connect',
         'spruthub_execute',
-        'spruthub_version',
-        'spruthub_disconnect'
+        'spruthub_version'
       ]);
-    });
-
-    test('should have correct schema for spruthub_connect tool', async () => {
-      const listToolsCall = mockServer.setRequestHandler.mock.calls
-        .find(call => call.length >= 2);
-      expect(listToolsCall).toBeDefined();
-      
-      const listToolsHandler = listToolsCall[1];
-      const result = await listToolsHandler();
-      const connectTool = result.tools.find(tool => tool.name === 'spruthub_connect');
-
-      expect(connectTool.inputSchema.required).toEqual([]);
-      expect(connectTool.inputSchema.properties).toHaveProperty('wsUrl');
-      expect(connectTool.inputSchema.properties).toHaveProperty('sprutEmail');
-      expect(connectTool.inputSchema.properties).toHaveProperty('sprutPassword');
-      expect(connectTool.inputSchema.properties).toHaveProperty('serial');
     });
 
     test('should have correct schema for spruthub_execute tool', async () => {

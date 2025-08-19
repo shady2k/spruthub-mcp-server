@@ -32,7 +32,7 @@ setTimeout(() => {
   server.kill();
   console.log('Test completed');
   
-  if (output.includes('spruthub_connect')) {
+  if (output.includes('spruthub_execute')) {
     console.log('✅ MCP server appears to be working correctly');
   } else {
     console.log('❌ MCP server may have issues');

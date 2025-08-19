@@ -92,48 +92,6 @@ describe('SpruthubMCPServer', () => {
     });
   });
 
-  describe('handleConnect', () => {
-    beforeEach(() => {
-      server = new SpruthubMCPServer();
-    });
-
-    test('should successfully connect to Spruthub server', async () => {
-      const args = {
-        wsUrl: 'ws://localhost:8080',
-        sprutEmail: 'test@example.com',
-        sprutPassword: 'password123',
-        serial: 'ABC123'
-      };
-
-      mockSprut.connected.mockResolvedValue();
-
-      const result = await server.handleConnect(args);
-
-      expect(mockSprutConstructor).toHaveBeenCalledWith({
-        wsUrl: args.wsUrl,
-        sprutEmail: args.sprutEmail,
-        sprutPassword: args.sprutPassword,
-        serial: args.serial,
-        logger: server.logger
-      });
-      expect(mockSprut.connected).toHaveBeenCalled();
-      expect(result.content[0].text).toBe('Successfully connected to Spruthub server');
-    });
-
-    test('should handle connection errors', async () => {
-      const args = {
-        wsUrl: 'ws://localhost:8080',
-        sprutEmail: 'test@example.com',
-        sprutPassword: 'password123',
-        serial: 'ABC123'
-      };
-
-      mockSprut.connected.mockRejectedValue(new Error('Connection failed'));
-
-      await expect(server.handleConnect(args)).rejects.toThrow('Failed to connect: Connection failed');
-    });
-  });
-
   describe('handleExecute', () => {
     beforeEach(() => {
       server = new SpruthubMCPServer();
@@ -148,7 +106,7 @@ describe('SpruthubMCPServer', () => {
         value: true
       };
 
-      await expect(server.handleExecute(args)).rejects.toThrow('Not connected to Spruthub. Use spruthub_connect first.');
+      await expect(server.handleExecute(args)).rejects.toThrow('Not connected and missing required connection parameters. Set environment variables: SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL');
     });
 
     test('should successfully execute command when connected', async () => {
@@ -198,7 +156,7 @@ describe('SpruthubMCPServer', () => {
     });
 
     test('should throw error when not connected', async () => {
-      await expect(server.handleVersion()).rejects.toThrow('Not connected to Spruthub. Use spruthub_connect first.');
+      await expect(server.handleVersion()).rejects.toThrow('Not connected and missing required connection parameters. Set environment variables: SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL');
     });
 
     test('should successfully get version when connected', async () => {
@@ -221,33 +179,4 @@ describe('SpruthubMCPServer', () => {
     });
   });
 
-  describe('handleDisconnect', () => {
-    beforeEach(() => {
-      server = new SpruthubMCPServer();
-    });
-
-    test('should handle disconnect when not connected', async () => {
-      const result = await server.handleDisconnect();
-
-      expect(result.content[0].text).toBe('Not connected to Spruthub server');
-    });
-
-    test('should successfully disconnect when connected', async () => {
-      server.sprutClient = mockSprut;
-      mockSprut.close.mockResolvedValue();
-
-      const result = await server.handleDisconnect();
-
-      expect(mockSprut.close).toHaveBeenCalled();
-      expect(server.sprutClient).toBeNull();
-      expect(result.content[0].text).toBe('Successfully disconnected from Spruthub server');
-    });
-
-    test('should handle disconnect errors', async () => {
-      server.sprutClient = mockSprut;
-      mockSprut.close.mockRejectedValue(new Error('Disconnect failed'));
-
-      await expect(server.handleDisconnect()).rejects.toThrow('Failed to disconnect: Disconnect failed');
-    });
-  });
 });
