@@ -110,9 +110,7 @@ describe('SpruthubMCPServer Integration', () => {
       const result = await listToolsHandler();
       const connectTool = result.tools.find(tool => tool.name === 'spruthub_connect');
 
-      expect(connectTool.inputSchema.required).toEqual([
-        'wsUrl', 'sprutEmail', 'sprutPassword', 'serial'
-      ]);
+      expect(connectTool.inputSchema.required).toEqual([]);
       expect(connectTool.inputSchema.properties).toHaveProperty('wsUrl');
       expect(connectTool.inputSchema.properties).toHaveProperty('sprutEmail');
       expect(connectTool.inputSchema.properties).toHaveProperty('sprutPassword');

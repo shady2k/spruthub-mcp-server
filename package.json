@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "MCP server for controlling Spruthub smart home devices",
   "main": "src/index.js",
+  "bin": {
+    "spruthub-mcp-server": "src/index.js"
+  },
   "type": "module",
   "scripts": {
     "start": "node src/index.js",

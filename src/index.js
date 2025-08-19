@@ -47,28 +47,28 @@ export class SpruthubMCPServer {
         tools: [
           {
             name: 'spruthub_connect',
-            description: 'Connect to Spruthub server',
+            description: 'Connect to Spruthub server. Parameters can be provided via arguments or environment variables (SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL)',
             inputSchema: {
               type: 'object',
               properties: {
                 wsUrl: {
                   type: 'string',
-                  description: 'WebSocket URL of the Spruthub server',
+                  description: 'WebSocket URL of the Spruthub server (or set SPRUTHUB_WS_URL)',
                 },
                 sprutEmail: {
                   type: 'string',
-                  description: 'Authentication email',
+                  description: 'Authentication email (or set SPRUTHUB_EMAIL)',
                 },
                 sprutPassword: {
                   type: 'string',
-                  description: 'Authentication password',
+                  description: 'Authentication password (or set SPRUTHUB_PASSWORD)',
                 },
                 serial: {
                   type: 'string',
-                  description: 'Device serial number',
+                  description: 'Device serial number (or set SPRUTHUB_SERIAL)',
                 },
               },
-              required: ['wsUrl', 'sprutEmail', 'sprutPassword', 'serial'],
+              required: [],
             },
           },
           {
@@ -152,7 +152,16 @@ export class SpruthubMCPServer {
   }
 
   async handleConnect(args) {
-    const { wsUrl, sprutEmail, sprutPassword, serial } = args;
+    const { 
+      wsUrl = process.env.SPRUTHUB_WS_URL,
+      sprutEmail = process.env.SPRUTHUB_EMAIL, 
+      sprutPassword = process.env.SPRUTHUB_PASSWORD, 
+      serial = process.env.SPRUTHUB_SERIAL 
+    } = args;
+
+    if (!wsUrl || !sprutEmail || !sprutPassword || !serial) {
+      throw new Error('Missing required connection parameters. Provide via arguments or environment variables: SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL');
+    }
 
     try {
       this.sprutClient = new Sprut({
