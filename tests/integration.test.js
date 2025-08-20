@@ -92,14 +92,16 @@ describe('SpruthubMCPServer Integration', () => {
       const listToolsHandler = listToolsCall[1];
       const result = await listToolsHandler();
 
-      expect(result.tools).toHaveLength(6);
+      expect(result.tools).toHaveLength(8);
       expect(result.tools.map(tool => tool.name)).toEqual([
         'spruthub_list_rooms',
         'spruthub_list_hubs',
         'spruthub_list_accessories',
+        'spruthub_count_accessories',
         'spruthub_get_device_info',
         'spruthub_execute',
-        'spruthub_version'
+        'spruthub_version',
+        'spruthub_usage_guide'
       ]);
     });
 

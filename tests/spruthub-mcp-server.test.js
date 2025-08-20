@@ -82,7 +82,7 @@ describe('SpruthubMCPServer', () => {
       expect(Server).toHaveBeenCalledWith(
         {
           name: 'spruthub-mcp-server',
-          version: '1.0.0',
+          version: '1.2.0',
         },
         {
           capabilities: {
@@ -216,7 +216,7 @@ describe('SpruthubMCPServer', () => {
       const result = await server.handleListAccessories({ summary: true });
 
       expect(mockSprut.listAccessories).toHaveBeenCalled();
-      expect(result.content[0].text).toContain('Found 1 accessory');
+      expect(result.content[0].text).toContain('Page 1/1: Showing 1 of 1 accessory');
     });
 
     test('should filter accessories by room', async () => {
@@ -228,6 +228,38 @@ describe('SpruthubMCPServer', () => {
       await server.handleListAccessories({ roomId: 1 });
 
       expect(mockSprut.getDevicesByRoom).toHaveBeenCalledWith(mockAccessories, 1);
+    });
+
+    test('should filter accessories by name', async () => {
+      server.sprutClient = mockSprut;
+      mockSprut.listAccessories.mockResolvedValue({
+        isSuccess: true,
+        data: [
+          { id: 1, name: 'Living Room Light', manufacturer: 'Philips', model: 'Hue', online: true, roomId: 1 },
+          { id: 2, name: 'Kitchen Switch', manufacturer: 'Lutron', model: 'Caseta', online: true, roomId: 2 }
+        ]
+      });
+
+      const result = await server.handleListAccessories({ nameFilter: 'Light' });
+
+      expect(result._meta.totalCount).toBe(1);
+      expect(result._meta.accessories[0].name).toBe('Living Room Light');
+    });
+
+    test('should count accessories with filters', async () => {
+      server.sprutClient = mockSprut;
+      mockSprut.listAccessories.mockResolvedValue({
+        isSuccess: true,
+        data: [
+          { id: 1, name: 'Light', manufacturer: 'Philips', online: true },
+          { id: 2, name: 'Switch', manufacturer: 'Lutron', online: false }
+        ]
+      });
+
+      const result = await server.handleCountAccessories({ onlineOnly: true });
+
+      expect(result._meta.count).toBe(1);
+      expect(result.content[0].text).toContain('1 accessory (online only)');
     });
   });
 

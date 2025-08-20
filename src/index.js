@@ -16,7 +16,7 @@ export class SpruthubMCPServer {
     this.server = new Server(
       {
         name: 'spruthub-mcp-server',
-        version: '1.0.0',
+        version: '1.2.0',
       },
       {
         capabilities: {
@@ -36,6 +36,17 @@ export class SpruthubMCPServer {
     });
 
     this.sprutClient = null;
+    
+    // Token consumption protection settings - More aggressive defaults for Claude Desktop
+    this.tokenLimits = {
+      maxResponseSize: parseInt(process.env.SPRUTHUB_MAX_RESPONSE_SIZE) || 25000, // Reduced from 50k to 25k
+      maxDevicesPerPage: parseInt(process.env.SPRUTHUB_MAX_DEVICES_PER_PAGE) || 20, // Reduced from 100 to 20
+      warnThreshold: parseInt(process.env.SPRUTHUB_WARN_THRESHOLD) || 15000, // Reduced from 30k to 15k
+      enableTruncation: process.env.SPRUTHUB_ENABLE_TRUNCATION !== 'false',
+      forceSmartDefaults: process.env.SPRUTHUB_FORCE_SMART_DEFAULTS !== 'false', // New: Force efficient defaults
+      autoSummaryThreshold: parseInt(process.env.SPRUTHUB_AUTO_SUMMARY_THRESHOLD) || 10 // Auto-enable summary mode above this count
+    };
+    
     this.setupToolHandlers();
     this.setupGracefulShutdown();
   }
@@ -62,7 +73,7 @@ export class SpruthubMCPServer {
           },
           {
             name: 'spruthub_list_accessories',
-            description: 'List smart home accessories/devices with optional filtering',
+            description: 'List smart home accessories/devices with optional filtering. IMPORTANT: This tool automatically uses smart defaults to minimize token usage - summary mode is enabled for >10 devices, page size is reduced for >50 devices, and metaOnly mode is forced for >100 devices. Always use filters (roomId, nameFilter, etc.) to reduce results.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -77,15 +88,92 @@ export class SpruthubMCPServer {
                 },
                 summary: {
                   type: 'boolean',
-                  description: 'Return summarized info instead of full details (default: true for performance)',
+                  description: 'Return summarized info instead of full details (default: true for performance, auto-enabled for >10 devices)',
                   default: true,
+                },
+                page: {
+                  type: 'number',
+                  description: 'Page number for pagination (1-based, default: 1)',
+                  default: 1,
+                },
+                limit: {
+                  type: 'number',
+                  description: 'Maximum number of items per page (default: 20, max: 20 for token protection, auto-reduced to 10 for large datasets)',
+                  default: 20,
+                },
+                metaOnly: {
+                  type: 'boolean',
+                  description: 'Return only count and summary info, no device details (default: false, auto-enabled for >100 devices to save tokens)',
+                  default: false,
+                },
+                nameFilter: {
+                  type: 'string',
+                  description: 'Filter devices by name (case-insensitive substring match)',
+                },
+                manufacturerFilter: {
+                  type: 'string',
+                  description: 'Filter devices by manufacturer (case-insensitive substring match)',
+                },
+                modelFilter: {
+                  type: 'string',
+                  description: 'Filter devices by model (case-insensitive substring match)',
+                },
+                onlineOnly: {
+                  type: 'boolean',
+                  description: 'Only return online devices (default: false)',
+                  default: false,
+                },
+                offlineOnly: {
+                  type: 'boolean',
+                  description: 'Only return offline devices (default: false)',
+                  default: false,
+                },
+              },
+            },
+          },
+          {
+            name: 'spruthub_count_accessories',
+            description: 'Get count of accessories with optional filtering (minimal token usage)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                roomId: {
+                  type: 'number',
+                  description: 'Filter devices by room ID (optional)',
+                },
+                controllableOnly: {
+                  type: 'boolean',
+                  description: 'Only count devices with controllable characteristics (default: false)',
+                  default: false,
+                },
+                nameFilter: {
+                  type: 'string',
+                  description: 'Filter devices by name (case-insensitive substring match)',
+                },
+                manufacturerFilter: {
+                  type: 'string',
+                  description: 'Filter devices by manufacturer (case-insensitive substring match)',
+                },
+                modelFilter: {
+                  type: 'string',
+                  description: 'Filter devices by model (case-insensitive substring match)',
+                },
+                onlineOnly: {
+                  type: 'boolean',
+                  description: 'Only count online devices (default: false)',
+                  default: false,
+                },
+                offlineOnly: {
+                  type: 'boolean',
+                  description: 'Only count offline devices (default: false)',
+                  default: false,
                 },
               },
             },
           },
           {
             name: 'spruthub_get_device_info',
-            description: 'Get detailed information for a specific device',
+            description: 'Get detailed information for a specific device. Large responses are automatically truncated to protect against excessive token usage.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -136,6 +224,14 @@ export class SpruthubMCPServer {
               properties: {},
             },
           },
+          {
+            name: 'spruthub_usage_guide',
+            description: 'Get token-efficient usage recommendations and current system statistics. Always use this first for large systems.',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
+          },
         ],
       };
     });
@@ -151,12 +247,16 @@ export class SpruthubMCPServer {
             return await this.handleListHubs();
           case 'spruthub_list_accessories':
             return await this.handleListAccessories(args);
+          case 'spruthub_count_accessories':
+            return await this.handleCountAccessories(args);
           case 'spruthub_get_device_info':
             return await this.handleGetDeviceInfo(args);
           case 'spruthub_execute':
             return await this.handleExecute(args);
           case 'spruthub_version':
             return await this.handleVersion();
+          case 'spruthub_usage_guide':
+            return await this.handleUsageGuide();
           default:
             throw new McpError(
               ErrorCode.MethodNotFound,
@@ -171,6 +271,177 @@ export class SpruthubMCPServer {
         );
       }
     });
+  }
+
+  applyAccessoryFilters(accessories, filters) {
+    let filtered = accessories;
+    
+    const {
+      roomId,
+      controllableOnly = false,
+      nameFilter,
+      manufacturerFilter,
+      modelFilter,
+      onlineOnly = false,
+      offlineOnly = false
+    } = filters;
+    
+    // Filter by room if specified
+    if (roomId !== undefined) {
+      filtered = this.sprutClient.getDevicesByRoom(filtered, roomId);
+    }
+    
+    // Filter to only controllable devices if requested
+    if (controllableOnly) {
+      const controllable = this.sprutClient.getControllableCharacteristics(filtered);
+      const controllableIds = new Set(controllable.map(c => c.accessoryId));
+      filtered = filtered.filter(acc => controllableIds.has(acc.id));
+    }
+    
+    // Filter by name (case-insensitive substring match)
+    if (nameFilter) {
+      const nameSearch = nameFilter.toLowerCase();
+      filtered = filtered.filter(acc => 
+        acc.name && acc.name.toLowerCase().includes(nameSearch)
+      );
+    }
+    
+    // Filter by manufacturer (case-insensitive substring match)
+    if (manufacturerFilter) {
+      const mfgSearch = manufacturerFilter.toLowerCase();
+      filtered = filtered.filter(acc => 
+        acc.manufacturer && acc.manufacturer.toLowerCase().includes(mfgSearch)
+      );
+    }
+    
+    // Filter by model (case-insensitive substring match)
+    if (modelFilter) {
+      const modelSearch = modelFilter.toLowerCase();
+      filtered = filtered.filter(acc => 
+        acc.model && acc.model.toLowerCase().includes(modelSearch)
+      );
+    }
+    
+    // Filter by online status
+    if (onlineOnly) {
+      filtered = filtered.filter(acc => acc.online === true);
+    } else if (offlineOnly) {
+      filtered = filtered.filter(acc => acc.online === false);
+    }
+    
+    return filtered;
+  }
+
+  buildFilterDescription(filters) {
+    const {
+      roomId, controllableOnly, nameFilter, manufacturerFilter,
+      modelFilter, onlineOnly, offlineOnly
+    } = filters;
+    
+    const parts = [];
+    
+    if (roomId !== undefined) parts.push(`in room ${roomId}`);
+    if (controllableOnly) parts.push('controllable only');
+    if (nameFilter) parts.push(`name contains "${nameFilter}"`);
+    if (manufacturerFilter) parts.push(`manufacturer contains "${manufacturerFilter}"`);
+    if (modelFilter) parts.push(`model contains "${modelFilter}"`);
+    if (onlineOnly) parts.push('online only');
+    if (offlineOnly) parts.push('offline only');
+    
+    return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+  }
+
+  // Token consumption protection methods
+  getSmartDefaults(totalCount, requestedParams = {}) {
+    const defaults = { ...requestedParams };
+    
+    if (this.tokenLimits.forceSmartDefaults) {
+      // Force summary mode for larger datasets
+      if (totalCount > this.tokenLimits.autoSummaryThreshold && defaults.summary === undefined) {
+        defaults.summary = true;
+        this.logger.info({ totalCount, threshold: this.tokenLimits.autoSummaryThreshold }, 
+          'Auto-enabling summary mode for large dataset');
+      }
+      
+      // Force smaller page sizes for large datasets
+      if (totalCount > 50 && (!defaults.limit || defaults.limit > 10)) {
+        defaults.limit = Math.min(defaults.limit || 10, 10);
+        this.logger.info({ totalCount, limit: defaults.limit }, 
+          'Auto-reducing page size for large dataset');
+      }
+      
+      // For very large datasets, suggest metaOnly mode
+      if (totalCount > 100 && defaults.metaOnly === undefined) {
+        defaults.metaOnly = true;
+        this.logger.info({ totalCount }, 
+          'Auto-enabling metaOnly mode for very large dataset');
+      }
+    }
+    
+    return defaults;
+  }
+
+  checkResponseSize(content) {
+    const responseText = JSON.stringify(content);
+    const size = responseText.length;
+    
+    if (size > this.tokenLimits.warnThreshold) {
+      this.logger.warn({ 
+        responseSize: size, 
+        threshold: this.tokenLimits.warnThreshold 
+      }, 'Large response detected - consider using pagination or summary mode');
+    }
+    
+    return { size, responseText };
+  }
+
+  truncateResponse(content, originalSize) {
+    if (!this.tokenLimits.enableTruncation || originalSize <= this.tokenLimits.maxResponseSize) {
+      return content;
+    }
+
+    // Create truncated version
+    const truncatedContent = [...content];
+    
+    // Add truncation warning to the first text content
+    if (truncatedContent.length > 0 && truncatedContent[0].type === 'text') {
+      truncatedContent[0].text = `⚠️  RESPONSE TRUNCATED (${originalSize} chars > ${this.tokenLimits.maxResponseSize} limit)\n${truncatedContent[0].text}`;
+    } else {
+      truncatedContent.unshift({
+        type: 'text',
+        text: `⚠️  RESPONSE TRUNCATED (${originalSize} chars > ${this.tokenLimits.maxResponseSize} limit)`
+      });
+    }
+    
+    // Truncate the text content to fit within limits
+    let totalSize = JSON.stringify(truncatedContent).length;
+    if (totalSize > this.tokenLimits.maxResponseSize) {
+      for (const item of truncatedContent) {
+        if (item.type === 'text') {
+          const maxTextLength = Math.floor(this.tokenLimits.maxResponseSize / truncatedContent.length) - 200; // Leave room for other content and truncation message
+          if (item.text.length > maxTextLength && maxTextLength > 100) {
+            item.text = item.text.substring(0, maxTextLength) + '\n... [TRUNCATED - Use pagination or summary mode for full data]';
+          }
+        }
+      }
+    }
+    
+    this.logger.warn({ 
+      originalSize, 
+      limit: this.tokenLimits.maxResponseSize 
+    }, 'Response truncated due to size limit');
+    
+    return truncatedContent;
+  }
+
+  processResponse(content) {
+    const { size } = this.checkResponseSize(content);
+    
+    if (size > this.tokenLimits.maxResponseSize) {
+      return this.truncateResponse(content, size);
+    }
+    
+    return content;
   }
 
   async ensureConnected() {
@@ -216,13 +487,15 @@ export class SpruthubMCPServer {
         control: { value },
       });
 
+      const content = [
+        {
+          type: 'text',
+          text: `Command executed successfully: ${JSON.stringify(result, null, 2)}`,
+        },
+      ];
+
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Command executed successfully: ${JSON.stringify(result, null, 2)}`,
-          },
-        ],
+        content: this.processResponse(content),
       };
     } catch (error) {
       this.logger.error({ error: error.message }, 'Failed to execute command');
@@ -247,17 +520,19 @@ export class SpruthubMCPServer {
         visible: room.visible
       }));
       
+      const content = [
+        {
+          type: 'text',
+          text: `Found ${rooms.length} rooms in the Spruthub system`,
+        },
+        {
+          type: 'text',
+          text: `Rooms: ${JSON.stringify(roomSummary, null, 2)}`,
+        },
+      ];
+
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Found ${rooms.length} rooms in the Spruthub system`,
-          },
-          {
-            type: 'text',
-            text: `Rooms: ${JSON.stringify(roomSummary, null, 2)}`,
-          },
-        ],
+        content: this.processResponse(content),
         _meta: {
           rooms: roomSummary,
           totalCount: rooms.length
@@ -281,17 +556,19 @@ export class SpruthubMCPServer {
 
       const hubs = result.data || [];
       
+      const content = [
+        {
+          type: 'text',
+          text: `Found ${hubs.length} Spruthub hub${hubs.length !== 1 ? 's' : ''}`,
+        },
+        {
+          type: 'text',
+          text: `Hubs: ${JSON.stringify(hubs, null, 2)}`,
+        },
+      ];
+
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Found ${hubs.length} Spruthub hub${hubs.length !== 1 ? 's' : ''}`,
-          },
-          {
-            type: 'text',
-            text: `Hubs: ${JSON.stringify(hubs, null, 2)}`,
-          },
-        ],
+        content: this.processResponse(content),
         _meta: {
           hubs: hubs,
           totalCount: hubs.length
@@ -307,7 +584,7 @@ export class SpruthubMCPServer {
     await this.ensureConnected();
 
     try {
-      const { roomId, controllableOnly = false, summary = true } = args;
+      // Get initial data to determine smart defaults
       const result = await this.sprutClient.listAccessories();
       
       if (!result.isSuccess) {
@@ -316,22 +593,90 @@ export class SpruthubMCPServer {
 
       let accessories = result.data || [];
       
-      // Filter by room if specified
-      if (roomId !== undefined) {
-        accessories = this.sprutClient.getDevicesByRoom(accessories, roomId);
-      }
+      // Apply basic filters first to get accurate count for smart defaults
+      const preFilterArgs = {
+        roomId: args.roomId,
+        controllableOnly: args.controllableOnly || false,
+        nameFilter: args.nameFilter,
+        manufacturerFilter: args.manufacturerFilter,
+        modelFilter: args.modelFilter,
+        onlineOnly: args.onlineOnly || false,
+        offlineOnly: args.offlineOnly || false
+      };
       
-      // Filter to only controllable devices if requested
-      if (controllableOnly) {
-        const controllable = this.sprutClient.getControllableCharacteristics(accessories);
-        const controllableIds = new Set(controllable.map(c => c.accessoryId));
-        accessories = accessories.filter(acc => controllableIds.has(acc.id));
+      // Pre-filter to get accurate count
+      const preFiltered = this.applyAccessoryFilters(accessories, preFilterArgs);
+      const unfilteredCount = preFiltered.length;
+      
+      // Get smart defaults based on actual data size
+      const smartDefaults = this.getSmartDefaults(unfilteredCount, args);
+      
+      const { 
+        roomId, 
+        controllableOnly = false, 
+        summary = smartDefaults.summary !== undefined ? smartDefaults.summary : true, 
+        page = 1, 
+        limit = smartDefaults.limit || 20, // Reduced default from 50 to 20
+        metaOnly = smartDefaults.metaOnly || false,
+        nameFilter,
+        manufacturerFilter,
+        modelFilter,
+        onlineOnly = false,
+        offlineOnly = false
+      } = { ...args, ...smartDefaults };
+      
+      // Validate pagination parameters with token protection
+      const pageNum = Math.max(1, parseInt(page));
+      const pageSize = Math.min(
+        this.tokenLimits.maxDevicesPerPage, 
+        Math.max(1, parseInt(limit))
+      );
+      
+      // Use the pre-filtered accessories (already filtered)
+      accessories = preFiltered;
+      
+      const totalCount = accessories.length;
+      const totalPages = Math.ceil(totalCount / pageSize);
+      const startIndex = (pageNum - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+      const paginatedAccessories = accessories.slice(startIndex, endIndex);
+      
+      // Generate filter description for display
+      const filterDesc = this.buildFilterDescription({
+        roomId, controllableOnly, nameFilter, manufacturerFilter, 
+        modelFilter, onlineOnly, offlineOnly
+      });
+      
+      // If metaOnly is true, return just counts and summary
+      if (metaOnly) {
+        const content = [
+          {
+            type: 'text',
+            text: `Found ${totalCount} accessor${totalCount !== 1 ? 'ies' : 'y'}${filterDesc}`,
+          },
+          {
+            type: 'text',
+            text: `Total pages: ${totalPages} (page ${pageNum} of ${totalPages}, ${pageSize} items per page)`,
+          },
+        ];
+
+        return {
+          content: this.processResponse(content),
+          _meta: {
+            totalCount,
+            totalPages,
+            currentPage: pageNum,
+            pageSize,
+            hasMore: pageNum < totalPages,
+            filters: { roomId, controllableOnly, nameFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly, summary, metaOnly }
+          }
+        };
       }
       
       let responseData;
       if (summary) {
-        // Return summarized data for performance
-        responseData = accessories.map(acc => ({
+        // Return minimal summarized data for performance
+        responseData = paginatedAccessories.map(acc => ({
           id: acc.id,
           name: acc.name,
           manufacturer: acc.manufacturer,
@@ -344,33 +689,92 @@ export class SpruthubMCPServer {
               s.characteristics.some(c => c.control && c.control.write)) : false
         }));
       } else {
-        responseData = accessories;
+        responseData = paginatedAccessories;
       }
       
+      const content = [
+        {
+          type: 'text',
+          text: `Page ${pageNum}/${totalPages}: Showing ${paginatedAccessories.length} of ${totalCount} accessor${totalCount !== 1 ? 'ies' : 'y'}${filterDesc}`,
+        },
+        {
+          type: 'text', 
+          text: `Accessories: ${JSON.stringify(responseData, null, 2)}`,
+        },
+      ];
+
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Found ${accessories.length} accessor${accessories.length !== 1 ? 'ies' : 'y'}${roomId ? ` in room ${roomId}` : ''}${controllableOnly ? ' (controllable only)' : ''}`,
-          },
-          {
-            type: 'text', 
-            text: `Accessories: ${JSON.stringify(responseData, null, 2)}`,
-          },
-        ],
+        content: this.processResponse(content),
         _meta: {
           accessories: responseData,
-          totalCount: accessories.length,
-          filters: {
-            roomId: roomId,
-            controllableOnly: controllableOnly,
-            summary: summary
-          }
+          totalCount,
+          totalPages,
+          currentPage: pageNum,
+          pageSize,
+          hasMore: pageNum < totalPages,
+          filters: { roomId, controllableOnly, nameFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly, summary }
         }
       };
     } catch (error) {
       this.logger.error({ error: error.message }, 'Failed to list accessories');
       throw new Error(`Failed to list accessories: ${error.message}`);
+    }
+  }
+
+  async handleCountAccessories(args = {}) {
+    await this.ensureConnected();
+
+    try {
+      const { 
+        roomId, 
+        controllableOnly = false,
+        nameFilter,
+        manufacturerFilter,
+        modelFilter,
+        onlineOnly = false,
+        offlineOnly = false
+      } = args;
+      const result = await this.sprutClient.listAccessories();
+      
+      if (!result.isSuccess) {
+        throw new Error(`API Error: ${result.message || 'Unknown error'}`);
+      }
+
+      let accessories = result.data || [];
+      
+      // Apply all filters using the helper function
+      accessories = this.applyAccessoryFilters(accessories, {
+        roomId,
+        controllableOnly,
+        nameFilter,
+        manufacturerFilter,
+        modelFilter,
+        onlineOnly,
+        offlineOnly
+      });
+      
+      const filterDesc = this.buildFilterDescription({
+        roomId, controllableOnly, nameFilter, manufacturerFilter,
+        modelFilter, onlineOnly, offlineOnly
+      });
+      
+      const content = [
+        {
+          type: 'text',
+          text: `${accessories.length} accessor${accessories.length !== 1 ? 'ies' : 'y'}${filterDesc}`,
+        },
+      ];
+
+      return {
+        content: this.processResponse(content),
+        _meta: {
+          count: accessories.length,
+          filters: { roomId, controllableOnly, nameFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly }
+        }
+      };
+    } catch (error) {
+      this.logger.error({ error: error.message }, 'Failed to count accessories');
+      throw new Error(`Failed to count accessories: ${error.message}`);
     }
   }
 
@@ -399,21 +803,23 @@ export class SpruthubMCPServer {
         controllableCharacteristics: controllable
       };
       
+      const content = [
+        {
+          type: 'text',
+          text: `Device "${deviceInfo.name}" (ID: ${accessoryId}) - ${deviceInfo.manufacturer} ${deviceInfo.model}`,
+        },
+        {
+          type: 'text',
+          text: `Status: ${deviceInfo.online ? 'Online' : 'Offline'} | Room ID: ${deviceInfo.roomId} | Controllable characteristics: ${controllable.length}`,
+        },
+        {
+          type: 'text',
+          text: `Full device data: ${JSON.stringify(deviceData, null, 2)}`,
+        },
+      ];
+
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Device "${deviceInfo.name}" (ID: ${accessoryId}) - ${deviceInfo.manufacturer} ${deviceInfo.model}`,
-          },
-          {
-            type: 'text',
-            text: `Status: ${deviceInfo.online ? 'Online' : 'Offline'} | Room ID: ${deviceInfo.roomId} | Controllable characteristics: ${controllable.length}`,
-          },
-          {
-            type: 'text',
-            text: `Full device data: ${JSON.stringify(deviceData, null, 2)}`,
-          },
-        ],
+        content: this.processResponse(content),
         _meta: {
           device: deviceInfo,
           controllableCharacteristics: controllable,
@@ -434,17 +840,109 @@ export class SpruthubMCPServer {
     try {
       const version = await this.sprutClient.version();
       
+      const content = [
+        {
+          type: 'text',
+          text: `Server version: ${JSON.stringify(version, null, 2)}`,
+        },
+      ];
+
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Server version: ${JSON.stringify(version, null, 2)}`,
-          },
-        ],
+        content: this.processResponse(content),
       };
     } catch (error) {
       this.logger.error({ error: error.message }, 'Failed to get version');
       throw new Error(`Failed to get version: ${error.message}`);
+    }
+  }
+
+  async handleUsageGuide() {
+    await this.ensureConnected();
+
+    try {
+      // Get system statistics
+      const roomsResult = await this.sprutClient.listRooms();
+      const accessoriesResult = await this.sprutClient.listAccessories();
+      const hubsResult = await this.sprutClient.listHubs();
+      
+      const roomCount = roomsResult.isSuccess ? (roomsResult.data || []).length : 0;
+      const deviceCount = accessoriesResult.isSuccess ? (accessoriesResult.data || []).length : 0;
+      const hubCount = hubsResult.isSuccess ? (hubsResult.data || []).length : 0;
+      
+      let recommendations = [];
+      let efficiency = "optimal";
+      
+      // Generate specific recommendations based on system size
+      if (deviceCount > 100) {
+        efficiency = "requires-filtering";
+        recommendations.push("🚨 LARGE SYSTEM (>100 devices): Always use spruthub_count_accessories first");
+        recommendations.push("🚨 ALWAYS use metaOnly=true for initial device exploration");
+        recommendations.push("🚨 Use specific filters: roomId, nameFilter, controllableOnly");
+        recommendations.push("🚨 Page size auto-limited to 10 items for token efficiency");
+      } else if (deviceCount > 50) {
+        efficiency = "needs-pagination";
+        recommendations.push("⚠️  MEDIUM SYSTEM (>50 devices): Use pagination with limit=10");
+        recommendations.push("⚠️  Enable summary=true (auto-enabled)");
+        recommendations.push("⚠️  Consider using filters to reduce results");
+      } else if (deviceCount > 10) {
+        efficiency = "use-summary";
+        recommendations.push("ℹ️  Summary mode will be auto-enabled for efficiency");
+        recommendations.push("ℹ️  Page size limited to 20 items");
+      } else {
+        recommendations.push("✅ Small system - full details available without restrictions");
+      }
+      
+      const content = [
+        {
+          type: 'text',
+          text: `🏠 SPRUTHUB SYSTEM OVERVIEW
+═══════════════════════════
+Hubs: ${hubCount}
+Rooms: ${roomCount}  
+Devices: ${deviceCount}
+Efficiency: ${efficiency.toUpperCase()}
+
+📊 TOKEN PROTECTION SETTINGS
+═══════════════════════════
+Max Response Size: ${this.tokenLimits.maxResponseSize} chars
+Max Devices/Page: ${this.tokenLimits.maxDevicesPerPage}
+Warning Threshold: ${this.tokenLimits.warnThreshold} chars
+Smart Defaults: ${this.tokenLimits.forceSmartDefaults ? 'ENABLED' : 'disabled'}
+Auto Summary Threshold: >${this.tokenLimits.autoSummaryThreshold} devices
+
+🎯 EFFICIENCY RECOMMENDATIONS
+═══════════════════════════
+${recommendations.join('\n')}
+
+📚 RECOMMENDED WORKFLOW
+═════════════════════
+1. START: Use spruthub_count_accessories with filters
+2. EXPLORE: Use spruthub_list_accessories with metaOnly=true  
+3. FILTER: Add roomId, nameFilter, controllableOnly as needed
+4. DETAILS: Use spruthub_get_device_info for specific devices
+5. CONTROL: Use spruthub_execute for device commands
+
+💡 EFFICIENT FILTER EXAMPLES
+═══════════════════════════
+• Count devices by room: spruthub_count_accessories + roomId=1
+• Find lights only: nameFilter="light" + controllableOnly=true
+• Check specific room: roomId=2 + summary=true + limit=10
+• Large system overview: metaOnly=true (auto-enabled >100 devices)`
+        },
+      ];
+
+      return {
+        content: this.processResponse(content),
+        _meta: {
+          systemStats: { rooms: roomCount, devices: deviceCount, hubs: hubCount },
+          efficiency,
+          tokenLimits: this.tokenLimits,
+          recommendations
+        }
+      };
+    } catch (error) {
+      this.logger.error({ error: error.message }, 'Failed to get usage guide');
+      throw new Error(`Failed to get usage guide: ${error.message}`);
     }
   }
 
