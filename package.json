@@ -1,6 +1,6 @@
 {
   "name": "spruthub-mcp-server",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "MCP server for controlling Spruthub smart home devices",
   "main": "src/index.js",
   "bin": {
@@ -31,7 +31,7 @@
     "@modelcontextprotocol/sdk": "^0.5.0",
     "pino": "^8.19.0",
     "pino-pretty": "^11.3.0",
-    "spruthub-client": "^1.0.0"
+    "spruthub-client": "^1.0.1"
   },
   "devDependencies": {
     "eslint": "^8.0.0",

@@ -4,7 +4,13 @@ const mockSprut = {
   connected: jest.fn(),
   execute: jest.fn(),
   version: jest.fn(),
-  close: jest.fn()
+  close: jest.fn(),
+  listRooms: jest.fn(),
+  listHubs: jest.fn(),
+  listAccessories: jest.fn(),
+  getDevicesByRoom: jest.fn(),
+  getDeviceInfo: jest.fn(),
+  getControllableCharacteristics: jest.fn()
 };
 
 const mockSprutConstructor = jest.fn().mockImplementation(() => mockSprut);
@@ -52,6 +58,11 @@ describe('SpruthubMCPServer', () => {
     mockLogger.error.mockClear();
     mockLogger.debug.mockClear();
     mockLogger.warn.mockClear();
+    
+    delete process.env.SPRUTHUB_WS_URL;
+    delete process.env.SPRUTHUB_EMAIL;
+    delete process.env.SPRUTHUB_PASSWORD;
+    delete process.env.SPRUTHUB_SERIAL;
     
     process.setMaxListeners(20);
   });
@@ -147,6 +158,76 @@ describe('SpruthubMCPServer', () => {
       mockSprut.execute.mockRejectedValue(new Error('Execution failed'));
 
       await expect(server.handleExecute(args)).rejects.toThrow('Failed to execute command: Execution failed');
+    });
+  });
+
+  describe('handleListRooms', () => {
+    beforeEach(() => {
+      server = new SpruthubMCPServer();
+    });
+
+    test('should throw error when not connected', async () => {
+      await expect(server.handleListRooms()).rejects.toThrow('Not connected and missing required connection parameters. Set environment variables: SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL');
+    });
+
+    test('should successfully list rooms when connected', async () => {
+      server.sprutClient = mockSprut;
+      const mockRooms = [{ id: 1, name: 'Living Room', visible: true }];
+      mockSprut.listRooms.mockResolvedValue({ isSuccess: true, data: mockRooms });
+
+      const result = await server.handleListRooms();
+
+      expect(mockSprut.listRooms).toHaveBeenCalled();
+      expect(result.content[0].text).toContain('Found 1 rooms in the Spruthub system');
+    });
+
+    test('should handle list rooms errors', async () => {
+      server.sprutClient = mockSprut;
+      mockSprut.listRooms.mockRejectedValue(new Error('List failed'));
+
+      await expect(server.handleListRooms()).rejects.toThrow('Failed to list rooms: List failed');
+    });
+  });
+
+  describe('handleListAccessories', () => {
+    beforeEach(() => {
+      server = new SpruthubMCPServer();
+    });
+
+    test('should successfully list accessories with summary', async () => {
+      server.sprutClient = mockSprut;
+      const mockAccessories = [
+        {
+          id: 1,
+          name: 'Light',
+          manufacturer: 'Philips',
+          model: 'Hue',
+          online: true,
+          roomId: 1,
+          services: [{
+            characteristics: [{
+              control: { write: true }
+            }]
+          }]
+        }
+      ];
+      mockSprut.listAccessories.mockResolvedValue({ isSuccess: true, data: mockAccessories });
+
+      const result = await server.handleListAccessories({ summary: true });
+
+      expect(mockSprut.listAccessories).toHaveBeenCalled();
+      expect(result.content[0].text).toContain('Found 1 accessory');
+    });
+
+    test('should filter accessories by room', async () => {
+      server.sprutClient = mockSprut;
+      const mockAccessories = [{ id: 1, name: 'Light', roomId: 1 }];
+      mockSprut.listAccessories.mockResolvedValue({ isSuccess: true, data: mockAccessories });
+      mockSprut.getDevicesByRoom.mockReturnValue([{ id: 1, name: 'Light', roomId: 1 }]);
+
+      await server.handleListAccessories({ roomId: 1 });
+
+      expect(mockSprut.getDevicesByRoom).toHaveBeenCalledWith(mockAccessories, 1);
     });
   });
 
