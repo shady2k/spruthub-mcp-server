@@ -1,16 +1,12 @@
 import { jest } from '@jest/globals';
 
-const mockLoggerFactory = jest.fn();
 
-jest.unstable_mockModule('pino', () => ({
-  default: mockLoggerFactory
-}));
 
 describe('Utility Functions', () => {
   beforeEach(() => {
     process.setMaxListeners(20);
   });
-  describe('Environment Variables', () => {
+  describe('Logger Configuration', () => {
     const originalEnv = process.env;
 
     beforeEach(() => {
@@ -23,46 +19,30 @@ describe('Utility Functions', () => {
       process.env = originalEnv;
     });
 
-    test('should use default log level when LOG_LEVEL is not set', async () => {
-      delete process.env.LOG_LEVEL;
-      
-      mockLoggerFactory.mockReturnValue({
-        info: jest.fn(),
-        error: jest.fn(),
-        debug: jest.fn(),
-        warn: jest.fn(),
-        level: 'info'
-      });
-      
+    test('should create logger with stderr output', async () => {
       const { SpruthubMCPServer } = await import('../src/index.js');
       const server = new SpruthubMCPServer();
       
-      expect(mockLoggerFactory).toHaveBeenCalledWith({
-        level: 'info',
-        transport: expect.any(Object)
-      });
-      expect(server.logger.level).toBe('info');
+      expect(server.logger).toBeDefined();
+      expect(typeof server.logger.info).toBe('function');
+      expect(typeof server.logger.error).toBe('function');
+      expect(typeof server.logger.warn).toBe('function');
+      expect(typeof server.logger.debug).toBe('function');
     });
 
-    test('should use custom log level when LOG_LEVEL is set', async () => {
+    test('should log debug messages only when LOG_LEVEL is debug', async () => {
       process.env.LOG_LEVEL = 'debug';
-      
-      mockLoggerFactory.mockReturnValue({
-        info: jest.fn(),
-        error: jest.fn(),
-        debug: jest.fn(),
-        warn: jest.fn(),
-        level: 'debug'
-      });
       
       const { SpruthubMCPServer } = await import('../src/index.js');
       const server = new SpruthubMCPServer();
       
-      expect(mockLoggerFactory).toHaveBeenCalledWith({
-        level: 'debug',
-        transport: expect.any(Object)
-      });
-      expect(server.logger.level).toBe('debug');
+      // Spy on console.error to verify debug logging behavior
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      
+      server.logger.debug('test debug message');
+      expect(consoleSpy).toHaveBeenCalledWith('[DEBUG]', 'test debug message');
+      
+      consoleSpy.mockRestore();
     });
   });
 

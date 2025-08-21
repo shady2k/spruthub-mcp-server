@@ -23,9 +23,6 @@ const mockLogger = {
   level: 'info'
 };
 
-jest.unstable_mockModule('pino', () => ({
-  default: jest.fn(() => mockLogger)
-}));
 
 jest.unstable_mockModule('spruthub-client', () => ({
   Sprut: jest.fn()

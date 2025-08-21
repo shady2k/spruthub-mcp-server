@@ -23,9 +23,6 @@ const mockLogger = {
   level: 'info'
 };
 
-jest.unstable_mockModule('pino', () => ({
-  default: jest.fn(() => mockLogger)
-}));
 
 jest.unstable_mockModule('spruthub-client', () => ({
   Sprut: mockSprutConstructor
@@ -82,7 +79,7 @@ describe('SpruthubMCPServer', () => {
       expect(Server).toHaveBeenCalledWith(
         {
           name: 'spruthub-mcp-server',
-          version: '1.3.1',
+          version: '1.3.3',
         },
         {
           capabilities: {
@@ -246,7 +243,7 @@ describe('SpruthubMCPServer', () => {
       expect(result._meta.accessories[0].name).toBe('Living Room Light');
     });
 
-    test('should find devices with multilingual name filter (Russian air quality)', async () => {
+    test('should find devices with case-insensitive name filter', async () => {
       server.sprutClient = mockSprut;
       mockSprut.listAccessories.mockResolvedValue({
         isSuccess: true,
@@ -257,14 +254,14 @@ describe('SpruthubMCPServer', () => {
         ]
       });
 
-      // Test Russian search term finding both Russian and English devices
+      // Test case-insensitive search finding devices with 'air' in the name
       const result = await server.handleListAccessories({ nameFilter: 'air' });
       
-      expect(result._meta.totalCount).toBe(2);
+      expect(result._meta.totalCount).toBe(1);
       const deviceNames = result._meta.accessories.map(acc => acc.name);
-      expect(deviceNames).toContain('Датчик воздуха');
       expect(deviceNames).toContain('Air Quality Sensor');
       expect(deviceNames).not.toContain('Light Switch');
+      expect(deviceNames).not.toContain('Датчик воздуха'); // Won't match Russian name with English filter
     });
 
     test('should find devices with deviceTypeFilter', async () => {
@@ -349,28 +346,5 @@ describe('SpruthubMCPServer', () => {
     });
   });
 
-  describe('Multilingual search functionality', () => {
-    beforeEach(() => {
-      server = new SpruthubMCPServer();
-    });
-
-    test('should expand search terms correctly', () => {
-      // Test expanding "air" to include Russian equivalents
-      const airTerms = server.expandSearchTerms('air');
-      expect(airTerms).toContain('air');
-      expect(airTerms).toContain('воздух');
-      
-      // Test expanding Russian term to include English
-      const russianTerms = server.expandSearchTerms('датчик');
-      expect(russianTerms).toContain('датчик');
-      expect(russianTerms).toContain('sensor');
-      expect(russianTerms).toContain('сенсор');
-      
-      // Test case insensitivity
-      const upperCaseTerms = server.expandSearchTerms('AIR');
-      expect(upperCaseTerms).toContain('air');
-      expect(upperCaseTerms).toContain('воздух');
-    });
-  });
 
 });

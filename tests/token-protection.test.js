@@ -71,11 +71,7 @@ describe('Token Protection', () => {
       
       server.checkResponseSize(largeContent);
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          responseSize: expect.any(Number),
-          threshold: 500
-        }),
-        'Large response detected - consider using pagination or summary mode'
+        expect.stringContaining('Large response detected - consider using pagination or summary mode')
       );
     });
   });
@@ -120,11 +116,7 @@ describe('Token Protection', () => {
       
       server.truncateResponse(content, 1500);
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          originalSize: 1500,
-          limit: 1000
-        }),
-        'Response truncated due to size limit'
+        expect.stringContaining('Response truncated due to size limit')
       );
     });
   });

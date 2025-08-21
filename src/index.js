@@ -9,14 +9,13 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { Sprut } from 'spruthub-client';
-import pino from 'pino';
 
 export class SpruthubMCPServer {
   constructor() {
     this.server = new Server(
       {
         name: 'spruthub-mcp-server',
-        version: '1.3.1',
+        version: '1.3.3',
       },
       {
         capabilities: {
@@ -25,15 +24,12 @@ export class SpruthubMCPServer {
       }
     );
 
-    this.logger = pino({
-      level: process.env.LOG_LEVEL || 'info',
-      transport: {
-        target: 'pino/file',
-        options: {
-          destination: '/tmp/spruthub-mcp.log',
-        },
-      },
-    });
+    this.logger = {
+      info: (msg, ...args) => console.error('[INFO]', typeof msg === 'object' ? JSON.stringify(msg) : msg, ...args),
+      error: (msg, ...args) => console.error('[ERROR]', typeof msg === 'object' ? JSON.stringify(msg) : msg, ...args),
+      warn: (msg, ...args) => console.error('[WARN]', typeof msg === 'object' ? JSON.stringify(msg) : msg, ...args),
+      debug: (msg, ...args) => process.env.LOG_LEVEL === 'debug' && console.error('[DEBUG]', typeof msg === 'object' ? JSON.stringify(msg) : msg, ...args)
+    };
 
     this.sprutClient = null;
     
@@ -272,7 +268,7 @@ export class SpruthubMCPServer {
             );
         }
       } catch (error) {
-        this.logger.error({ error: error.message }, 'Tool execution failed');
+        this.logger.error(`Tool execution failed: ${error.message}`);
         throw new McpError(
           ErrorCode.InternalError,
           `Tool execution failed: ${error.message}`
@@ -422,22 +418,19 @@ export class SpruthubMCPServer {
       // Force summary mode for larger datasets
       if (totalCount > this.tokenLimits.autoSummaryThreshold && defaults.summary === undefined) {
         defaults.summary = true;
-        this.logger.info({ totalCount, threshold: this.tokenLimits.autoSummaryThreshold }, 
-          'Auto-enabling summary mode for large dataset');
+        this.logger.info(`Auto-enabling summary mode for large dataset (totalCount: ${totalCount}, threshold: ${this.tokenLimits.autoSummaryThreshold})`);
       }
       
       // Force smaller page sizes for large datasets
       if (totalCount > 50 && (!defaults.limit || defaults.limit > 10)) {
         defaults.limit = Math.min(defaults.limit || 10, 10);
-        this.logger.info({ totalCount, limit: defaults.limit }, 
-          'Auto-reducing page size for large dataset');
+        this.logger.info(`Auto-reducing page size for large dataset (totalCount: ${totalCount}, limit: ${defaults.limit})`);
       }
       
       // For very large datasets, suggest metaOnly mode
       if (totalCount > 100 && defaults.metaOnly === undefined) {
         defaults.metaOnly = true;
-        this.logger.info({ totalCount }, 
-          'Auto-enabling metaOnly mode for very large dataset');
+        this.logger.info(`Auto-enabling metaOnly mode for very large dataset (totalCount: ${totalCount})`);
       }
     }
     
@@ -449,10 +442,7 @@ export class SpruthubMCPServer {
     const size = responseText.length;
     
     if (size > this.tokenLimits.warnThreshold) {
-      this.logger.warn({ 
-        responseSize: size, 
-        threshold: this.tokenLimits.warnThreshold 
-      }, 'Large response detected - consider using pagination or summary mode');
+      this.logger.warn(`Large response detected - consider using pagination or summary mode (responseSize: ${size}, threshold: ${this.tokenLimits.warnThreshold})`);
     }
     
     return { size, responseText };
@@ -489,10 +479,7 @@ export class SpruthubMCPServer {
       }
     }
     
-    this.logger.warn({ 
-      originalSize, 
-      limit: this.tokenLimits.maxResponseSize 
-    }, 'Response truncated due to size limit');
+    this.logger.warn(`Response truncated due to size limit (originalSize: ${originalSize}, limit: ${this.tokenLimits.maxResponseSize})`);
     
     return truncatedContent;
   }
@@ -531,7 +518,7 @@ export class SpruthubMCPServer {
 
         await this.sprutClient.connected();
       } catch (error) {
-        this.logger.error({ error: error.message }, 'Failed to connect to Spruthub');
+        this.logger.error(`Failed to connect to Spruthub: ${error.message}`);
         throw new Error(`Failed to connect: ${error.message}`);
       }
     }
@@ -561,7 +548,7 @@ export class SpruthubMCPServer {
         content: this.processResponse(content),
       };
     } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to execute command');
+      this.logger.error(`Failed to execute command: ${error.message}`);
       throw new Error(`Failed to execute command: ${error.message}`);
     }
   }
@@ -602,7 +589,7 @@ export class SpruthubMCPServer {
         }
       };
     } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to list rooms');
+      this.logger.error(`Failed to list rooms: ${error.message}`);
       throw new Error(`Failed to list rooms: ${error.message}`);
     }
   }
@@ -638,7 +625,7 @@ export class SpruthubMCPServer {
         }
       };
     } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to list hubs');
+      this.logger.error(`Failed to list hubs: ${error.message}`);
       throw new Error(`Failed to list hubs: ${error.message}`);
     }
   }
@@ -781,7 +768,7 @@ export class SpruthubMCPServer {
         }
       };
     } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to list accessories');
+      this.logger.error(`Failed to list accessories: ${error.message}`);
       throw new Error(`Failed to list accessories: ${error.message}`);
     }
   }
@@ -840,7 +827,7 @@ export class SpruthubMCPServer {
         }
       };
     } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to count accessories');
+      this.logger.error(`Failed to count accessories: ${error.message}`);
       throw new Error(`Failed to count accessories: ${error.message}`);
     }
   }
@@ -896,7 +883,7 @@ export class SpruthubMCPServer {
         }
       };
     } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to get device info');
+      this.logger.error(`Failed to get device info: ${error.message}`);
       throw new Error(`Failed to get device info: ${error.message}`);
     }
   }
@@ -918,7 +905,7 @@ export class SpruthubMCPServer {
         content: this.processResponse(content),
       };
     } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to get version');
+      this.logger.error(`Failed to get version: ${error.message}`);
       throw new Error(`Failed to get version: ${error.message}`);
     }
   }
@@ -1011,7 +998,7 @@ ${recommendations.join('\n')}
         }
       };
     } catch (error) {
-      this.logger.error({ error: error.message }, 'Failed to get usage guide');
+      this.logger.error(`Failed to get usage guide: ${error.message}`);
       throw new Error(`Failed to get usage guide: ${error.message}`);
     }
   }
@@ -1025,7 +1012,7 @@ ${recommendations.join('\n')}
           await this.sprutClient.close();
           this.logger.info('Successfully disconnected from Spruthub server');
         } catch (error) {
-          this.logger.error({ error: error.message }, 'Failed to disconnect gracefully');
+          this.logger.error(`Failed to disconnect gracefully: ${error.message}`);
         }
       }
       
