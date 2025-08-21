@@ -39,9 +39,9 @@ export class SpruthubMCPServer {
     
     // Token consumption protection settings - More aggressive defaults for Claude Desktop
     this.tokenLimits = {
-      maxResponseSize: parseInt(process.env.SPRUTHUB_MAX_RESPONSE_SIZE) || 25000, // Reduced from 50k to 25k
+      maxResponseSize: parseInt(process.env.SPRUTHUB_MAX_RESPONSE_SIZE) || 50000, // Increased from 25k to 50k
       maxDevicesPerPage: parseInt(process.env.SPRUTHUB_MAX_DEVICES_PER_PAGE) || 20, // Reduced from 100 to 20
-      warnThreshold: parseInt(process.env.SPRUTHUB_WARN_THRESHOLD) || 15000, // Reduced from 30k to 15k
+      warnThreshold: parseInt(process.env.SPRUTHUB_WARN_THRESHOLD) || 30000, // Increased from 15k to 30k
       enableTruncation: process.env.SPRUTHUB_ENABLE_TRUNCATION !== 'false',
       forceSmartDefaults: process.env.SPRUTHUB_FORCE_SMART_DEFAULTS !== 'false', // New: Force efficient defaults
       autoSummaryThreshold: parseInt(process.env.SPRUTHUB_AUTO_SUMMARY_THRESHOLD) || 10 // Auto-enable summary mode above this count
@@ -73,7 +73,7 @@ export class SpruthubMCPServer {
           },
           {
             name: 'spruthub_list_accessories',
-            description: 'List smart home accessories/devices with optional filtering. IMPORTANT: This tool automatically uses smart defaults to minimize token usage - summary mode is enabled for >10 devices, page size is reduced for >50 devices, and metaOnly mode is forced for >100 devices. Always use filters (roomId, nameFilter, etc.) to reduce results.',
+            description: 'List smart home accessories/devices with advanced filtering. ⚠️ TRUNCATION WARNING: Responses >25,000 chars are automatically truncated - use pagination (page/limit) and summary=true to avoid data loss. DEFAULTS: summary=true for efficiency, limit=20 max per page. Auto-optimizes: summary mode for >10 devices, smaller pages for >50 devices, metaOnly for >100 devices. LANGUAGE MATCHING: Use nameFilter with terms in the same language you are communicating with the user (e.g., if speaking Russian, search for "датчик воздуха", if English, search for "air sensor"). Use deviceTypeFilter="air_quality" for capability-based search. Always use filters and pagination for large datasets.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -88,7 +88,7 @@ export class SpruthubMCPServer {
                 },
                 summary: {
                   type: 'boolean',
-                  description: 'Return summarized info instead of full details (default: true for performance, auto-enabled for >10 devices)',
+                  description: 'Return summarized info (name, manufacturer, model, online status, controllable flag) instead of full device details with all services/characteristics. CRITICAL: Use summary=true (default) for browsing and exploration to avoid truncation. Use summary=false ONLY when you need detailed device services, characteristics, or specific sensor values - but expect truncation for large responses >50k chars. Auto-enabled for >10 devices.',
                   default: true,
                 },
                 page: {
@@ -98,17 +98,21 @@ export class SpruthubMCPServer {
                 },
                 limit: {
                   type: 'number',
-                  description: 'Maximum number of items per page (default: 20, max: 20 for token protection, auto-reduced to 10 for large datasets)',
+                  description: 'Maximum devices per page (default: 20, enforced max: 20). TRUNCATION RISK: Large limits with summary=false may exceed 50k char limit and get truncated. Use smaller limits (5-10) when summary=false or for detailed device exploration.',
                   default: 20,
                 },
                 metaOnly: {
                   type: 'boolean',
-                  description: 'Return only count and summary info, no device details (default: false, auto-enabled for >100 devices to save tokens)',
+                  description: 'Return only count and pagination info, no device details (default: false, auto-enabled for >100 devices). Use for initial system exploration to avoid truncation. Perfect for understanding system size before detailed queries.',
                   default: false,
                 },
                 nameFilter: {
                   type: 'string',
-                  description: 'Filter devices by name (case-insensitive substring match)',
+                  description: 'Filter devices by name (case-insensitive substring match). Use terms in the same language as your conversation with the user - if communicating in Russian, use Russian terms like "датчик", "свет", "температура"; if in English, use English terms like "sensor", "light", "temperature".',
+                },
+                deviceTypeFilter: {
+                  type: 'string',
+                  description: 'Filter devices by type/capability (e.g., "air_quality", "temperature", "humidity", "co2", "pm25", "light", "switch"). Searches device services for matching sensor types.',
                 },
                 manufacturerFilter: {
                   type: 'string',
@@ -148,7 +152,11 @@ export class SpruthubMCPServer {
                 },
                 nameFilter: {
                   type: 'string',
-                  description: 'Filter devices by name (case-insensitive substring match)',
+                  description: 'Filter devices by name (case-insensitive substring match). Use terms in the same language as your conversation with the user - if communicating in Russian, use Russian terms like "датчик", "свет", "температура"; if in English, use English terms like "sensor", "light", "temperature".',
+                },
+                deviceTypeFilter: {
+                  type: 'string',
+                  description: 'Filter devices by type/capability (e.g., "air_quality", "temperature", "humidity", "co2", "pm25", "light", "switch")',
                 },
                 manufacturerFilter: {
                   type: 'string',
@@ -273,6 +281,7 @@ export class SpruthubMCPServer {
     });
   }
 
+
   applyAccessoryFilters(accessories, filters) {
     let filtered = accessories;
     
@@ -280,6 +289,7 @@ export class SpruthubMCPServer {
       roomId,
       controllableOnly = false,
       nameFilter,
+      deviceTypeFilter,
       manufacturerFilter,
       modelFilter,
       onlineOnly = false,
@@ -301,9 +311,61 @@ export class SpruthubMCPServer {
     // Filter by name (case-insensitive substring match)
     if (nameFilter) {
       const nameSearch = nameFilter.toLowerCase();
-      filtered = filtered.filter(acc => 
-        acc.name && acc.name.toLowerCase().includes(nameSearch)
-      );
+      filtered = filtered.filter(acc => {
+        if (!acc.name) return false;
+        return acc.name.toLowerCase().includes(nameSearch);
+      });
+    }
+    
+    // Filter by device type/capability (searches services for matching sensor types)
+    if (deviceTypeFilter) {
+      const typeSearch = deviceTypeFilter.toLowerCase();
+      filtered = filtered.filter(acc => {
+        if (!acc.services || !Array.isArray(acc.services)) return false;
+        
+        // Check service types and characteristics for matching capabilities
+        return acc.services.some(service => {
+          // Check service type
+          if (service.type && service.type.toLowerCase().includes(typeSearch)) {
+            return true;
+          }
+          
+          // Check characteristic types for sensor capabilities
+          if (service.characteristics && Array.isArray(service.characteristics)) {
+            return service.characteristics.some(char => {
+              if (!char.type) return false;
+              const charType = char.type.toLowerCase();
+              
+              // Map common type filters to HomeKit characteristic types
+              const typeMap = {
+                'air_quality': ['airqualitysensor', 'airquality'],
+                'temperature': ['temperature', 'currenttemperature'],
+                'humidity': ['humidity', 'currentrelativehumidity'],
+                'co2': ['carbondioxide', 'co2'],
+                'pm25': ['pm2_5density', 'pm25'],
+                'pm10': ['pm10density', 'pm10'],
+                'voc': ['vocdensity', 'voc'],
+                'light': ['brightness', 'hue', 'saturation', 'on'],
+                'switch': ['on', 'switch'],
+                'motion': ['motiondetected', 'motion'],
+                'contact': ['contactsensorstate', 'contact']
+              };
+              
+              // Check if the type filter matches any mapped characteristic
+              if (typeMap[typeSearch]) {
+                return typeMap[typeSearch].some(mappedType => 
+                  charType.includes(mappedType.toLowerCase())
+                );
+              }
+              
+              // Direct substring match as fallback
+              return charType.includes(typeSearch);
+            });
+          }
+          
+          return false;
+        });
+      });
     }
     
     // Filter by manufacturer (case-insensitive substring match)
@@ -334,7 +396,7 @@ export class SpruthubMCPServer {
 
   buildFilterDescription(filters) {
     const {
-      roomId, controllableOnly, nameFilter, manufacturerFilter,
+      roomId, controllableOnly, nameFilter, deviceTypeFilter, manufacturerFilter,
       modelFilter, onlineOnly, offlineOnly
     } = filters;
     
@@ -343,6 +405,7 @@ export class SpruthubMCPServer {
     if (roomId !== undefined) parts.push(`in room ${roomId}`);
     if (controllableOnly) parts.push('controllable only');
     if (nameFilter) parts.push(`name contains "${nameFilter}"`);
+    if (deviceTypeFilter) parts.push(`type: "${deviceTypeFilter}"`);
     if (manufacturerFilter) parts.push(`manufacturer contains "${manufacturerFilter}"`);
     if (modelFilter) parts.push(`model contains "${modelFilter}"`);
     if (onlineOnly) parts.push('online only');
@@ -598,6 +661,7 @@ export class SpruthubMCPServer {
         roomId: args.roomId,
         controllableOnly: args.controllableOnly || false,
         nameFilter: args.nameFilter,
+        deviceTypeFilter: args.deviceTypeFilter,
         manufacturerFilter: args.manufacturerFilter,
         modelFilter: args.modelFilter,
         onlineOnly: args.onlineOnly || false,
@@ -619,6 +683,7 @@ export class SpruthubMCPServer {
         limit = smartDefaults.limit || 20, // Reduced default from 50 to 20
         metaOnly = smartDefaults.metaOnly || false,
         nameFilter,
+        deviceTypeFilter,
         manufacturerFilter,
         modelFilter,
         onlineOnly = false,
@@ -643,7 +708,7 @@ export class SpruthubMCPServer {
       
       // Generate filter description for display
       const filterDesc = this.buildFilterDescription({
-        roomId, controllableOnly, nameFilter, manufacturerFilter, 
+        roomId, controllableOnly, nameFilter, deviceTypeFilter, manufacturerFilter, 
         modelFilter, onlineOnly, offlineOnly
       });
       
@@ -668,7 +733,7 @@ export class SpruthubMCPServer {
             currentPage: pageNum,
             pageSize,
             hasMore: pageNum < totalPages,
-            filters: { roomId, controllableOnly, nameFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly, summary, metaOnly }
+            filters: { roomId, controllableOnly, nameFilter, deviceTypeFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly, summary, metaOnly }
           }
         };
       }
@@ -712,7 +777,7 @@ export class SpruthubMCPServer {
           currentPage: pageNum,
           pageSize,
           hasMore: pageNum < totalPages,
-          filters: { roomId, controllableOnly, nameFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly, summary }
+          filters: { roomId, controllableOnly, nameFilter, deviceTypeFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly, summary }
         }
       };
     } catch (error) {
@@ -729,6 +794,7 @@ export class SpruthubMCPServer {
         roomId, 
         controllableOnly = false,
         nameFilter,
+        deviceTypeFilter,
         manufacturerFilter,
         modelFilter,
         onlineOnly = false,
@@ -747,6 +813,7 @@ export class SpruthubMCPServer {
         roomId,
         controllableOnly,
         nameFilter,
+        deviceTypeFilter,
         manufacturerFilter,
         modelFilter,
         onlineOnly,
@@ -754,7 +821,7 @@ export class SpruthubMCPServer {
       });
       
       const filterDesc = this.buildFilterDescription({
-        roomId, controllableOnly, nameFilter, manufacturerFilter,
+        roomId, controllableOnly, nameFilter, deviceTypeFilter, manufacturerFilter,
         modelFilter, onlineOnly, offlineOnly
       });
       
@@ -769,7 +836,7 @@ export class SpruthubMCPServer {
         content: this.processResponse(content),
         _meta: {
           count: accessories.length,
-          filters: { roomId, controllableOnly, nameFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly }
+          filters: { roomId, controllableOnly, nameFilter, deviceTypeFilter, manufacturerFilter, modelFilter, onlineOnly, offlineOnly }
         }
       };
     } catch (error) {
@@ -925,7 +992,10 @@ ${recommendations.join('\n')}
 💡 EFFICIENT FILTER EXAMPLES
 ═══════════════════════════
 • Count devices by room: spruthub_count_accessories + roomId=1
-• Find lights only: nameFilter="light" + controllableOnly=true
+• Find lights only: nameFilter="light" + controllableOnly=true  
+• Find air quality sensors: deviceTypeFilter="air_quality" + summary=false
+• Language-matched search: nameFilter="датчик" when speaking Russian, nameFilter="sensor" when speaking English
+• Temperature sensors: deviceTypeFilter="temperature" + summary=false
 • Check specific room: roomId=2 + summary=true + limit=10
 • Large system overview: metaOnly=true (auto-enabled >100 devices)`
         },

@@ -90,8 +90,8 @@ This server includes built-in protection against excessive token usage:
 
 ### Automatic Response Limiting
 - Responses are automatically monitored for size
-- Large responses (>15k characters by default) trigger warnings
-- Responses exceeding the limit (25k characters by default) are automatically truncated
+- Large responses (>30k characters by default) trigger warnings
+- Responses exceeding the limit (50k characters by default) are automatically truncated
 - Truncated responses include clear warnings and suggestions
 
 ### Smart Defaults (Auto-enabled)
@@ -156,9 +156,9 @@ npm run lint:fix
 - `SPRUTHUB_SERIAL`: Device serial number (required if auto-connecting)
 
 ### Token Protection Settings
-- `SPRUTHUB_MAX_RESPONSE_SIZE`: Maximum response size in characters (default: 25000)
+- `SPRUTHUB_MAX_RESPONSE_SIZE`: Maximum response size in characters (default: 50000)
 - `SPRUTHUB_MAX_DEVICES_PER_PAGE`: Maximum devices per page in listings (default: 20) 
-- `SPRUTHUB_WARN_THRESHOLD`: Response size threshold for warnings (default: 15000)
+- `SPRUTHUB_WARN_THRESHOLD`: Response size threshold for warnings (default: 30000)
 - `SPRUTHUB_ENABLE_TRUNCATION`: Enable response truncation when over limit (default: true)
 - `SPRUTHUB_FORCE_SMART_DEFAULTS`: Auto-enable efficiency features (default: true)
 - `SPRUTHUB_AUTO_SUMMARY_THRESHOLD`: Device count to auto-enable summary mode (default: 10)

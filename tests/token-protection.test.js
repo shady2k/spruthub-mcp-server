@@ -41,9 +41,9 @@ describe('Token Protection', () => {
       delete process.env.SPRUTHUB_AUTO_SUMMARY_THRESHOLD;
       
       const defaultServer = new SpruthubMCPServer();
-      expect(defaultServer.tokenLimits.maxResponseSize).toBe(25000); // Updated default
+      expect(defaultServer.tokenLimits.maxResponseSize).toBe(50000); // Updated default
       expect(defaultServer.tokenLimits.maxDevicesPerPage).toBe(20); // Updated default  
-      expect(defaultServer.tokenLimits.warnThreshold).toBe(15000); // Updated default
+      expect(defaultServer.tokenLimits.warnThreshold).toBe(30000); // Updated default
       expect(defaultServer.tokenLimits.enableTruncation).toBe(true);
       expect(defaultServer.tokenLimits.forceSmartDefaults).toBe(true);
       expect(defaultServer.tokenLimits.autoSummaryThreshold).toBe(10);

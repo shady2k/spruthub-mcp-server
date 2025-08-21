@@ -246,6 +246,63 @@ describe('SpruthubMCPServer', () => {
       expect(result._meta.accessories[0].name).toBe('Living Room Light');
     });
 
+    test('should find devices with multilingual name filter (Russian air quality)', async () => {
+      server.sprutClient = mockSprut;
+      mockSprut.listAccessories.mockResolvedValue({
+        isSuccess: true,
+        data: [
+          { id: 1, name: 'Датчик воздуха', manufacturer: 'Xiaomi', online: true },
+          { id: 2, name: 'Air Quality Sensor', manufacturer: 'Philips', online: true },
+          { id: 3, name: 'Light Switch', manufacturer: 'Lutron', online: true }
+        ]
+      });
+
+      // Test Russian search term finding both Russian and English devices
+      const result = await server.handleListAccessories({ nameFilter: 'air' });
+      
+      expect(result._meta.totalCount).toBe(2);
+      const deviceNames = result._meta.accessories.map(acc => acc.name);
+      expect(deviceNames).toContain('Датчик воздуха');
+      expect(deviceNames).toContain('Air Quality Sensor');
+      expect(deviceNames).not.toContain('Light Switch');
+    });
+
+    test('should find devices with deviceTypeFilter', async () => {
+      server.sprutClient = mockSprut;
+      mockSprut.listAccessories.mockResolvedValue({
+        isSuccess: true,
+        data: [
+          { 
+            id: 1, 
+            name: 'Air Quality Sensor', 
+            manufacturer: 'Xiaomi',
+            services: [{
+              type: 'AirQualitySensor',
+              characteristics: [{ type: 'AirQuality', value: 1 }]
+            }]
+          },
+          { 
+            id: 2, 
+            name: 'Temperature Sensor', 
+            manufacturer: 'Philips',
+            services: [{
+              type: 'TemperatureSensor', 
+              characteristics: [{ type: 'CurrentTemperature', value: 22 }]
+            }]
+          },
+          { id: 3, name: 'Light Switch', manufacturer: 'Lutron', services: [] }
+        ]
+      });
+
+      const result = await server.handleListAccessories({ 
+        deviceTypeFilter: 'air_quality',
+        summary: false 
+      });
+      
+      expect(result._meta.totalCount).toBe(1);
+      expect(result._meta.accessories[0].name).toBe('Air Quality Sensor');
+    });
+
     test('should count accessories with filters', async () => {
       server.sprutClient = mockSprut;
       mockSprut.listAccessories.mockResolvedValue({
@@ -289,6 +346,30 @@ describe('SpruthubMCPServer', () => {
       mockSprut.version.mockRejectedValue(new Error('Version failed'));
 
       await expect(server.handleVersion()).rejects.toThrow('Failed to get version: Version failed');
+    });
+  });
+
+  describe('Multilingual search functionality', () => {
+    beforeEach(() => {
+      server = new SpruthubMCPServer();
+    });
+
+    test('should expand search terms correctly', () => {
+      // Test expanding "air" to include Russian equivalents
+      const airTerms = server.expandSearchTerms('air');
+      expect(airTerms).toContain('air');
+      expect(airTerms).toContain('воздух');
+      
+      // Test expanding Russian term to include English
+      const russianTerms = server.expandSearchTerms('датчик');
+      expect(russianTerms).toContain('датчик');
+      expect(russianTerms).toContain('sensor');
+      expect(russianTerms).toContain('сенсор');
+      
+      // Test case insensitivity
+      const upperCaseTerms = server.expandSearchTerms('AIR');
+      expect(upperCaseTerms).toContain('air');
+      expect(upperCaseTerms).toContain('воздух');
     });
   });
 
