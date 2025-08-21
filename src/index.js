@@ -9,6 +9,8 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { Sprut } from 'spruthub-client';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 export class SpruthubMCPServer {
   constructor() {
@@ -1035,19 +1037,28 @@ ${recommendations.join('\n')}
   }
 }
 
-// Debugging entry point
-process.stderr.write(`[DEBUG] import.meta.url: ${import.meta.url}\n`);
-process.stderr.write(`[DEBUG] process.argv[1]: ${process.argv[1]}\n`);
-process.stderr.write(`[DEBUG] Full argv: ${JSON.stringify(process.argv)}\n`);
-process.stderr.write(`[DEBUG] file://process.argv[1]: file://${process.argv[1]}\n`);
+// This check is crucial for allowing the script to be executed directly via `node`
+// and also correctly when installed and run via `npx`.
+//
+// `import.meta.url` provides the file URL of the current module.
+// `process.argv[1]` is the path to the executed script.
+// When run with `npx`, process.argv[1] points to a symlink. We need to resolve
+// this to its real path to compare it with the module's actual file path.
+const isMainModule = () => {
+  const mainPath = process.argv[1];
+  const modulePath = fileURLToPath(import.meta.url);
+  
+  // In many environments (like direct `node src/index.js`), these will be the same.
+  // When run via npx, mainPath is a symlink, so we need to resolve it.
+  return path.resolve(mainPath) === path.resolve(modulePath);
+};
 
-if (import.meta.url.endsWith(process.argv[1])) {
-  process.stderr.write('[DEBUG] Condition met, starting server...\n');
+
+if (isMainModule()) {
   const server = new SpruthubMCPServer();
   server.run().catch((error) => {
-    process.stderr.write(`Server failed to start: ${error}\n`);
+    // Use console.error for better formatting and stack traces
+    console.error('Server failed to start:', error);
     process.exit(1);
   });
-} else {
-  process.stderr.write('[DEBUG] Condition NOT met, server will not start.\n');
 }
