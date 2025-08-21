@@ -15,7 +15,7 @@ export class SpruthubMCPServer {
     this.server = new Server(
       {
         name: 'spruthub-mcp-server',
-        version: '1.3.3',
+        version: '1.3.4',
       },
       {
         capabilities: {
@@ -1035,10 +1035,19 @@ ${recommendations.join('\n')}
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Debugging entry point
+process.stderr.write(`[DEBUG] import.meta.url: ${import.meta.url}\n`);
+process.stderr.write(`[DEBUG] process.argv[1]: ${process.argv[1]}\n`);
+process.stderr.write(`[DEBUG] Full argv: ${JSON.stringify(process.argv)}\n`);
+process.stderr.write(`[DEBUG] file://process.argv[1]: file://${process.argv[1]}\n`);
+
+if (import.meta.url.endsWith(process.argv[1])) {
+  process.stderr.write('[DEBUG] Condition met, starting server...\n');
   const server = new SpruthubMCPServer();
   server.run().catch((error) => {
     process.stderr.write(`Server failed to start: ${error}\n`);
     process.exit(1);
   });
+} else {
+  process.stderr.write('[DEBUG] Condition NOT met, server will not start.\n');
 }
