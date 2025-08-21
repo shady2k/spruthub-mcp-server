@@ -9,8 +9,8 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { Sprut } from 'spruthub-client';
-import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 export class SpruthubMCPServer {
   constructor() {
@@ -1045,14 +1045,19 @@ ${recommendations.join('\n')}
 // When run with `npx`, process.argv[1] points to a symlink. We need to resolve
 // this to its real path to compare it with the module's actual file path.
 const isMainModule = () => {
-  const mainPath = process.argv[1];
-  const modulePath = fileURLToPath(import.meta.url);
-  
-  // In many environments (like direct `node src/index.js`), these will be the same.
-  // When run via npx, mainPath is a symlink, so we need to resolve it.
-  return path.resolve(mainPath) === path.resolve(modulePath);
+  try {
+    // Get the path of the script that was executed.
+    const mainPath = fs.realpathSync(process.argv[1]);
+    // Get the path of the current module.
+    const modulePath = fileURLToPath(import.meta.url);
+    // Compare the two. If they are the same, this is the main module.
+    return mainPath === modulePath;
+  } catch (error) {
+    // If realpathSync fails (e.g., file not found), it's not the main module.
+    console.error(`[DEBUG] Error in isMainModule check: ${error.message}`);
+    return false;
+  }
 };
-
 
 if (isMainModule()) {
   const server = new SpruthubMCPServer();
