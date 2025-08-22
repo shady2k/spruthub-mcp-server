@@ -17,7 +17,7 @@ export class SpruthubMCPServer {
     this.server = new Server(
       {
         name: 'spruthub-mcp-server',
-        version: '1.3.4',
+        version: '1.3.6',
       },
       {
         capabilities: {
