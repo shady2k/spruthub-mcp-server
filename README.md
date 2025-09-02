@@ -1,19 +1,16 @@
 # Spruthub MCP Server
 
-A Model Context Protocol (MCP) server for controlling Spruthub smart home devices. This server provides Claude and other MCP-compatible clients with the ability to interact with Spruthub devices through a WebSocket connection.
+A Model Context Protocol (MCP) server for controlling [Sprut.hub](https://spruthub.ru/) smart home devices. This server provides Claude and other MCP-compatible clients with dynamic access to the complete Sprut.hub JSON-RPC API through schema autodiscovery.
 
 ## Features
 
-- Connect to Spruthub server via WebSocket
-- List and manage rooms in your smart home system
-- List and monitor Spruthub hubs
-- Browse smart home accessories/devices with filtering options
-- Get detailed device information
-- Execute device commands (update characteristics)
-- Get server version information
-- Proper connection management with authentication
-- Structured data output for better AI integration
-- **Token consumption protection** - Automatic response size limiting and truncation to prevent excessive token usage
+- **Dynamic API Discovery** - Automatically discovers and exposes all available Spruthub JSON-RPC methods
+- **Schema Validation** - Built-in parameter validation and documentation for all API methods
+- **Full API Coverage** - Access to all Spruthub functionality including devices, rooms, scenarios, and system administration
+- **WebSocket Connection** - Secure connection to Spruthub server with authentication
+- **Method Categories** - Organized API methods by category (hub, accessory, scenario, room, system)
+- **Real-time Schema Updates** - Schema information updated with spruthub-client library versions
+- **Structured Responses** - JSON-formatted responses optimized for AI integration
 
 ## Installation
 
@@ -27,108 +24,149 @@ npm install
 
 Add this server to your MCP client configuration. For Claude Desktop, add to your `claude_desktop_config.json`:
 
+#### Using npm package (recommended):
 ```json
 {
   "mcpServers": {
-    "spruthub": {
-      "command": "node",
-      "args": ["/path/to/spruthub-mcp-server/src/index.js"]
+    "spruthub-mcp-server": {
+      "command": "npx",
+      "args": [
+        "spruthub-mcp-server@1.3.7"
+      ],
+      "env": {
+        "SPRUTHUB_WS_URL": "ws://192.168.0.100/spruthub",
+        "SPRUTHUB_EMAIL": "your_email@example.com",
+        "SPRUTHUB_PASSWORD": "your_password",
+        "SPRUTHUB_SERIAL": "AAABBBCCCDDDEEEF"
+      }
     }
   }
 }
 ```
 
+#### For local development:
+```json
+{
+  "mcpServers": {
+    "spruthub-mcp-server": {
+      "command": "node",
+      "args": ["/path/to/spruthub-mcp-server/src/index.js"],
+      "env": {
+        "SPRUTHUB_WS_URL": "ws://192.168.0.100/spruthub",
+        "SPRUTHUB_EMAIL": "your_email@example.com", 
+        "SPRUTHUB_PASSWORD": "your_password",
+        "SPRUTHUB_SERIAL": "AAABBBCCCDDDEEEF"
+      }
+    }
+  }
+}
+```
+
+**Note:** Replace the environment variables with your actual Spruthub server details:
+- `SPRUTHUB_WS_URL`: WebSocket URL of your Spruthub server
+- `SPRUTHUB_EMAIL`: Your Spruthub account email  
+- `SPRUTHUB_PASSWORD`: Your Spruthub account password
+- `SPRUTHUB_SERIAL`: Your Spruthub hub serial number
+
+**Security Best Practice:** For sensitive values like `SPRUTHUB_PASSWORD`, consider using your system's environment variables instead of hardcoding them in the config file:
+
+```json
+{
+  "mcpServers": {
+    "spruthub-mcp-server": {
+      "command": "npx",
+      "args": ["spruthub-mcp-server@1.3.7"],
+      "env": {
+        "SPRUTHUB_WS_URL": "ws://192.168.0.100/spruthub",
+        "SPRUTHUB_EMAIL": "your_email@example.com",
+        "SPRUTHUB_PASSWORD": "$SPRUTHUB_PASSWORD",
+        "SPRUTHUB_SERIAL": "AAABBBCCCDDDEEEF"
+      }
+    }
+  }
+}
+```
+
+Then set the password in your system environment:
+```bash
+export SPRUTHUB_PASSWORD="your_actual_password"
+```
+
 ### Available Tools
 
-#### `spruthub_list_rooms`
-List all rooms in the Spruthub system with their IDs and visibility status.
+This server provides three core tools that give you access to the complete Spruthub JSON-RPC API:
 
-No parameters required.
-
-#### `spruthub_list_hubs`
-List all Spruthub hubs with their status and version information.
-
-No parameters required.
-
-#### `spruthub_list_accessories`
-List smart home accessories/devices with optional filtering for better performance.
+#### `spruthub_list_methods`
+Discover all available Spruthub API methods with their descriptions and categories.
 
 Parameters:
-- `roomId` (optional): Filter devices by specific room ID
-- `controllableOnly` (optional): Only return devices with controllable characteristics (default: false)
-- `summary` (optional): Return summarized info instead of full details (default: true for performance)
+- `category` (optional): Filter methods by category (`hub`, `accessory`, `scenario`, `room`, `system`)
 
-#### `spruthub_get_device_info`
-Get detailed information for a specific device, including all its controllable characteristics.
+**Example usage:** Start here to explore what's available in your Spruthub system.
 
-Parameters:
-- `accessoryId`: ID of the accessory to get detailed info for
-
-#### `spruthub_execute`
-Execute a command on a Spruthub device (turn lights on/off, control switches, etc.).
+#### `spruthub_get_method_schema`
+Get detailed schema information for any API method, including parameters, return types, and examples.
 
 Parameters:
-- `command`: Command to execute (currently only "update" is supported)
-- `accessoryId`: ID of the accessory to control
-- `serviceId`: ID of the service within the accessory
-- `characteristicId`: ID of the characteristic to update
-- `value`: Boolean value to set for the characteristic (true = on/open, false = off/closed)
+- `methodName` (required): The method name to get schema for (e.g., `accessory.search`, `characteristic.update`)
 
-#### `spruthub_version`
-Get Spruthub server version information.
+**Important:** Always call this tool before using `spruthub_call_method` to understand the exact parameter structure required.
 
-No parameters required.
+#### `spruthub_call_method`
+Execute any Spruthub JSON-RPC API method with the provided parameters.
 
-#### `spruthub_usage_guide`
-Get token-efficient usage recommendations and current system statistics. **Use this tool first** to understand your system size and get specific recommendations for efficient usage.
+Parameters:
+- `methodName` (required): The API method to call
+- `parameters` (optional): Method parameters as defined in the method's schema
 
-No parameters required.
+**Critical:** You MUST call `spruthub_get_method_schema` first to understand the parameter structure. Never guess parameters.
 
-## Token Consumption Protection
+### Common Workflows
 
-This server includes built-in protection against excessive token usage:
+1. **Explore your system:**
+   ```
+   spruthub_list_methods → spruthub_get_method_schema → spruthub_call_method
+   ```
 
-### Automatic Response Limiting
-- Responses are automatically monitored for size
-- Large responses (>30k characters by default) trigger warnings
-- Responses exceeding the limit (50k characters by default) are automatically truncated
-- Truncated responses include clear warnings and suggestions
+2. **Control devices:**
+   ```
+   spruthub_get_method_schema(methodName: "characteristic.update")
+   → spruthub_call_method(methodName: "characteristic.update", parameters: {...})
+   ```
 
-### Smart Defaults (Auto-enabled)
-- **>10 devices**: Summary mode automatically enabled
-- **>50 devices**: Page size reduced to 10 items automatically
-- **>100 devices**: MetaOnly mode forced to prevent token overuse
-- Device listings are limited to 20 items per page by default
-- Use the `spruthub_count_accessories` tool for minimal token usage
+3. **Browse by category:**
+   ```
+   spruthub_list_methods(category: "accessory") → Get device-related methods
+   spruthub_list_methods(category: "scenario") → Get automation methods
+   ```
 
-### Intelligent Filtering
-- Always prefer specific filters over full listings
-- Use `roomId` to limit scope to specific rooms
-- Use `controllableOnly=true` to focus on actionable devices
-- Use `nameFilter`, `manufacturerFilter` for targeted searches
+## Efficient API Usage
 
-### Recommended Claude Desktop Workflow
-1. **Start with**: `spruthub_usage_guide` - Get system overview and specific recommendations
-2. **Count first**: `spruthub_count_accessories` with filters to understand scope
-3. **Explore efficiently**: Use `spruthub_list_accessories` with `metaOnly=true` for large systems
-4. **Filter aggressively**: Always use `roomId`, `nameFilter`, or `controllableOnly` when possible
-5. **Get details last**: Use `spruthub_get_device_info` only for specific devices you need to control
+The schema-based approach provides efficient access to Spruthub functionality:
 
-### Configuration
-Configure protection limits via environment variables:
-```bash
-# Override defaults for even more aggressive token savings
-export SPRUTHUB_MAX_RESPONSE_SIZE=15000
-export SPRUTHUB_MAX_DEVICES_PER_PAGE=10
-export SPRUTHUB_WARN_THRESHOLD=10000
-export SPRUTHUB_AUTO_SUMMARY_THRESHOLD=5
-```
+### Recommended Workflow
+1. **Discovery Phase**: Use `spruthub_list_methods` to explore available functionality
+2. **Schema Phase**: Use `spruthub_get_method_schema` to understand method requirements  
+3. **Execution Phase**: Use `spruthub_call_method` with proper parameters
 
-### Disabling Smart Defaults
-If you prefer manual control over response formatting:
-```bash
-export SPRUTHUB_FORCE_SMART_DEFAULTS=false
-```
+### Best Practices
+- **Filter by category** when exploring: Use `category` parameter in `spruthub_list_methods`
+- **Always get schema first**: Never guess API parameters - use `spruthub_get_method_schema`
+- **Use specific methods**: The API provides targeted methods for efficient operations
+- **Check method categories**: 
+  - `hub` - Hub management and status
+  - `accessory` - Device discovery and control  
+  - `scenario` - Automation and scenes
+  - `room` - Room management
+  - `system` - System administration
+
+### Schema-Driven Development
+Each API method includes:
+- Complete parameter specifications
+- Return type definitions  
+- Usage examples
+- REST API mapping (where available)
+- Category classification
 
 ## Development
 
@@ -155,13 +193,8 @@ npm run lint:fix
 - `SPRUTHUB_PASSWORD`: Password for authentication (required if auto-connecting)
 - `SPRUTHUB_SERIAL`: Device serial number (required if auto-connecting)
 
-### Token Protection Settings
-- `SPRUTHUB_MAX_RESPONSE_SIZE`: Maximum response size in characters (default: 50000)
-- `SPRUTHUB_MAX_DEVICES_PER_PAGE`: Maximum devices per page in listings (default: 20) 
-- `SPRUTHUB_WARN_THRESHOLD`: Response size threshold for warnings (default: 30000)
-- `SPRUTHUB_ENABLE_TRUNCATION`: Enable response truncation when over limit (default: true)
-- `SPRUTHUB_FORCE_SMART_DEFAULTS`: Auto-enable efficiency features (default: true)
-- `SPRUTHUB_AUTO_SUMMARY_THRESHOLD`: Device count to auto-enable summary mode (default: 10)
+### Logging Settings  
+- `LOG_LEVEL`: Set logging level (`info`, `debug`, `warn`, `error`) (default: 'info')
 
 ## License
 
