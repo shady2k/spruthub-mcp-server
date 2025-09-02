@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "inspect": "npx @modelcontextprotocol/inspector node src/index.js",
+    "inspect": "node -r dotenv/config ./node_modules/@modelcontextprotocol/inspector/cli/build/cli.js node src/index.js",
     "test": "node --experimental-vm-modules ./node_modules/.bin/jest",
     "test:coverage": "node --experimental-vm-modules ./node_modules/.bin/jest --coverage",
     "test:watch": "node --experimental-vm-modules ./node_modules/.bin/jest --watch",
@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/inspector": "^0.16.5",
+    "dotenv": "^17.2.1",
     "eslint": "^8.0.0",
     "jest": "^29.0.0"
   },
