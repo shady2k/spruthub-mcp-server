@@ -11,13 +11,17 @@ import {
 import { Sprut, Schema } from 'spruthub-client';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const packageJson = require('../package.json');
 
 export class SpruthubMCPServer {
   constructor() {
     this.server = new Server(
       {
         name: 'spruthub-mcp-server',
-        version: '1.3.6',
+        version: packageJson.version,
       },
       {
         capabilities: {
