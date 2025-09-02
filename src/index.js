@@ -22,6 +22,7 @@ export class SpruthubMCPServer {
       {
         name: 'spruthub-mcp-server',
         version: packageJson.version,
+        description: 'Spruthub MCP Server - Provides secure access to Sprut.hub smart home system via JSON-RPC API. Supports listing devices, controlling accessories, managing scenarios, and system administration.',
       },
       {
         capabilities: {
