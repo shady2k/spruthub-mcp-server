@@ -31,7 +31,7 @@ Add this server to your MCP client configuration. For Claude Desktop, add to you
     "spruthub-mcp-server": {
       "command": "npx",
       "args": [
-        "spruthub-mcp-server@1.3.8"
+        "spruthub-mcp-server@1.3.9"
       ],
       "env": {
         "SPRUTHUB_WS_URL": "ws://192.168.0.100/spruthub",
@@ -75,7 +75,7 @@ Add this server to your MCP client configuration. For Claude Desktop, add to you
   "mcpServers": {
     "spruthub-mcp-server": {
       "command": "npx",
-      "args": ["spruthub-mcp-server@1.3.8"],
+      "args": ["spruthub-mcp-server@1.3.9"],
       "env": {
         "SPRUTHUB_WS_URL": "ws://192.168.0.100/spruthub",
         "SPRUTHUB_EMAIL": "your_email@example.com",

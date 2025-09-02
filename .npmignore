@@ -1,0 +1,30 @@
+# Development files
+jest.config.js
+.eslintrc.cjs
+.claude/
+
+# Test files
+tests/
+coverage/
+
+# Development dependencies
+node_modules/
+
+# Git files
+.git/
+.gitignore
+
+# IDE files
+.vscode/
+*.log
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# OS files
+.DS_Store
+Thumbs.db
