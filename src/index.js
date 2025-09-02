@@ -68,7 +68,7 @@ export class SpruthubMCPServer {
               properties: {
                 methodName: {
                   type: 'string',
-                  description: 'The method name (e.g., "hub.list", "characteristic.update")',
+                  description: 'The method name (e.g., "accessory.search", "characteristic.update")',
                 },
               },
               required: ['methodName'],
@@ -76,17 +76,17 @@ export class SpruthubMCPServer {
           },
           {
             name: 'spruthub_call_method',
-            description: 'Execute any Sprut.hub JSON-RPC API method. Use spruthub_get_method_schema first to see the required parameters',
+            description: 'Execute any Sprut.hub JSON-RPC API method. IMPORTANT: You MUST call spruthub_get_method_schema first to understand the exact parameter structure before calling this method. Never guess parameters.',
             inputSchema: {
               type: 'object',
               properties: {
                 methodName: {
                   type: 'string',
-                  description: 'The method name to call (e.g., "hub.list", "characteristic.update")',
+                  description: 'The method name to call (e.g., "accessory.search", "characteristic.update")',
                 },
                 parameters: {
                   type: 'object',
-                  description: 'Method parameters as defined in the method schema. Use spruthub_get_method_schema to see the exact parameter structure required',
+                  description: 'Method parameters exactly as defined in the method schema. MUST call spruthub_get_method_schema first to get the correct parameter structure. Do not guess parameter names or structure.',
                 },
               },
               required: ['methodName'],
