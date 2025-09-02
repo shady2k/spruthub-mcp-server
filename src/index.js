@@ -8,7 +8,7 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { Schema } from 'spruthub-client';
+import { Sprut, Schema } from 'spruthub-client';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
@@ -33,6 +33,7 @@ export class SpruthubMCPServer {
       debug: (msg, ...args) => process.env.LOG_LEVEL === 'debug' && console.error('[DEBUG]', typeof msg === 'object' ? JSON.stringify(msg) : msg, ...args)
     };
 
+    this.sprutClient = null;
     
     this.setupToolHandlers();
     this.setupGracefulShutdown();
@@ -57,13 +58,31 @@ export class SpruthubMCPServer {
           },
           {
             name: 'spruthub_get_method_schema',
-            description: 'Get detailed schema for a specific Sprut.hub API method including parameters, return type, examples, and REST mapping',
+            description: 'Get detailed schema for a specific Sprut.hub API method including parameters, return type, examples',
             inputSchema: {
               type: 'object',
               properties: {
                 methodName: {
                   type: 'string',
                   description: 'The method name (e.g., "hub.list", "characteristic.update")',
+                },
+              },
+              required: ['methodName'],
+            },
+          },
+          {
+            name: 'spruthub_call_method',
+            description: 'Execute any Sprut.hub JSON-RPC API method. Use spruthub_get_method_schema first to see the required parameters',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                methodName: {
+                  type: 'string',
+                  description: 'The method name to call (e.g., "hub.list", "characteristic.update")',
+                },
+                parameters: {
+                  type: 'object',
+                  description: 'Method parameters as defined in the method schema. Use spruthub_get_method_schema to see the exact parameter structure required',
                 },
               },
               required: ['methodName'],
@@ -76,12 +95,16 @@ export class SpruthubMCPServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
 
+      this.logger.debug(`Tool call: ${name}, args: ${JSON.stringify(args)}`);
+
       try {
         switch (name) {
           case 'spruthub_list_methods':
             return await this.handleListMethods(args);
           case 'spruthub_get_method_schema':
             return await this.handleGetMethodSchema(args);
+          case 'spruthub_call_method':
+            return await this.handleCallMethod(args);
           default:
             throw new McpError(
               ErrorCode.MethodNotFound,
@@ -203,6 +226,87 @@ export class SpruthubMCPServer {
     }
   }
 
+  async handleCallMethod(args) {
+    try {
+      const { methodName, parameters = {} } = args;
+      
+      if (!methodName) {
+        throw new Error('methodName parameter is required');
+      }
+
+      this.logger.debug(`Attempting to call method: ${methodName}`);
+      this.logger.debug(`Parameters: ${JSON.stringify(parameters)}`);
+
+      // Validate method exists in schema
+      const schema = Schema.getMethodSchema(methodName);
+      if (!schema) {
+        const availableMethods = Schema.getAvailableMethods();
+        this.logger.error(`Schema lookup failed for method: "${methodName}" (type: ${typeof methodName})`);
+        throw new Error(`Method "${methodName}" not found. Available methods: ${availableMethods.slice(0, 10).join(', ')}${availableMethods.length > 10 ? '...' : ''}`);
+      }
+
+      // Ensure connection
+      await this.ensureConnected();
+
+      // Execute the method
+      const result = await this.sprutClient.callMethod(methodName, parameters);
+
+      const content = [
+        {
+          type: 'text',
+          text: `Called ${methodName} successfully`,
+        },
+        {
+          type: 'text',
+          text: `Result: ${JSON.stringify(result, null, 2)}`,
+        },
+      ];
+
+      return {
+        content: this.processResponse(content),
+        _meta: {
+          methodName,
+          parameters,
+          result,
+          schema: schema
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Failed to call method: ${error.message}`);
+      throw new Error(`Failed to call method: ${error.message}`);
+    }
+  }
+
+  async ensureConnected() {
+    if (!this.sprutClient) {
+      const wsUrl = process.env.SPRUTHUB_WS_URL;
+      const sprutEmail = process.env.SPRUTHUB_EMAIL;
+      const sprutPassword = process.env.SPRUTHUB_PASSWORD;
+      const serial = process.env.SPRUTHUB_SERIAL;
+
+      if (!wsUrl || !sprutEmail || !sprutPassword || !serial) {
+        throw new Error('Not connected and missing required connection parameters. Set environment variables: SPRUTHUB_WS_URL, SPRUTHUB_EMAIL, SPRUTHUB_PASSWORD, SPRUTHUB_SERIAL');
+      }
+
+      this.logger.info('Auto-connecting to Spruthub server...');
+      
+      try {
+        this.sprutClient = new Sprut({
+          wsUrl,
+          sprutEmail,
+          sprutPassword,
+          serial,
+          logger: this.logger,
+        });
+
+        await this.sprutClient.connected();
+      } catch (error) {
+        this.logger.error(`Failed to connect to Spruthub: ${error.message}`);
+        throw new Error(`Failed to connect: ${error.message}`);
+      }
+    }
+  }
+
   processResponse(content) {
     // Simple pass-through since we don't need token protection for schema tools
     return content;
@@ -212,11 +316,26 @@ export class SpruthubMCPServer {
   setupGracefulShutdown() {
     const shutdown = async (signal) => {
       this.logger.info(`Received ${signal}, shutting down gracefully...`);
+      
+      if (this.sprutClient) {
+        try {
+          await this.sprutClient.close();
+          this.logger.info('Successfully disconnected from Spruthub server');
+        } catch (error) {
+          this.logger.error(`Failed to disconnect gracefully: ${error.message}`);
+        }
+      }
+      
       process.exit(0);
     };
 
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('exit', () => {
+      if (this.sprutClient) {
+        this.logger.info('Process exiting, cleaning up connection...');
+      }
+    });
   }
 
   async run() {
