@@ -1,5 +1,8 @@
 # Spruthub MCP Server
 
+[![npm version](https://badge.fury.io/js/spruthub-mcp-server.svg)](https://badge.fury.io/js/spruthub-mcp-server)
+[![npm](https://img.shields.io/npm/dm/spruthub-mcp-server.svg)](https://www.npmjs.com/package/spruthub-mcp-server)
+
 A Model Context Protocol (MCP) server for controlling [Sprut.hub](https://spruthub.ru/) smart home devices. This server provides Claude and other MCP-compatible clients with dynamic access to the complete Sprut.hub JSON-RPC API through schema autodiscovery.
 
 ## Features
@@ -14,7 +17,42 @@ A Model Context Protocol (MCP) server for controlling [Sprut.hub](https://spruth
 
 ## Installation
 
+### Using npx (Recommended)
+
+Run the MCP server directly using npx:
+
 ```bash
+npx spruthub-mcp-server
+```
+
+### Using Claude Desktop
+
+Add to your Claude Desktop MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "spruthub": {
+      "command": "npx",
+      "args": ["spruthub-mcp-server"],
+      "env": {
+        "SPRUTHUB_WS_URL": "wss://your-spruthub-server.com/ws",
+        "SPRUTHUB_EMAIL": "your-email@example.com",
+        "SPRUTHUB_PASSWORD": "your-password",
+        "SPRUTHUB_SERIAL": "your-device-serial"
+      }
+    }
+  }
+}
+```
+
+### Development
+
+For development or local modifications:
+
+```bash
+git clone https://github.com/shady2k/spruthub-mcp-server.git
+cd spruthub-mcp-server
 npm install
 ```
 
