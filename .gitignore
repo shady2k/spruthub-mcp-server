@@ -32,6 +32,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.serena/
 
 # Temporary files
 .tmp/
