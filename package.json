@@ -1,6 +1,6 @@
 {
   "name": "spruthub-mcp-server",
-  "version": "1.3.12",
+  "version": "1.3.13",
   "description": "MCP server for controlling Sprut.hub smart home devices with dynamic JSON-RPC API discovery",
   "main": "src/index.js",
   "bin": {
