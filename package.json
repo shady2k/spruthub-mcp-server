@@ -15,7 +15,8 @@
     "test:coverage": "node --experimental-vm-modules ./node_modules/.bin/jest --coverage",
     "test:watch": "node --experimental-vm-modules ./node_modules/.bin/jest --watch",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "prepush": "npm run lint && npm test"
   },
   "keywords": [
     "mcp",

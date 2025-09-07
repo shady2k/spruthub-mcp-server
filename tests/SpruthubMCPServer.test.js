@@ -10,11 +10,14 @@ describe('Basic functionality tests', () => {
 
 describe('Package configuration', () => {
   test('should have correct package structure', async () => {
-    const packageJson = await import('../package.json', { assert: { type: 'json' } });
-    expect(packageJson.default.name).toBe('spruthub-mcp-server');
-    expect(packageJson.default.version).toMatch(/^\d+\.\d+\.\d+$/); // semver format
-    expect(packageJson.default.type).toBe('module');
-    expect(packageJson.default.main).toBe('src/index.js');
+    const fs = await import('fs');
+    const path = await import('path');
+    const packagePath = path.resolve(process.cwd(), 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    expect(packageJson.name).toBe('spruthub-mcp-server');
+    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/); // semver format
+    expect(packageJson.type).toBe('module');
+    expect(packageJson.main).toBe('src/index.js');
   });
 });
 
