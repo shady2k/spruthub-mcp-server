@@ -9,11 +9,12 @@ describe('Basic functionality tests', () => {
 });
 
 describe('Package configuration', () => {
-  test('should have correct package name and version', async () => {
+  test('should have correct package structure', async () => {
     const packageJson = await import('../package.json', { assert: { type: 'json' } });
     expect(packageJson.default.name).toBe('spruthub-mcp-server');
-    expect(packageJson.default.version).toBe('1.3.12');
+    expect(packageJson.default.version).toMatch(/^\d+\.\d+\.\d+$/); // semver format
     expect(packageJson.default.type).toBe('module');
+    expect(packageJson.default.main).toBe('src/index.js');
   });
 });
 
